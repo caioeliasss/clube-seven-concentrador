@@ -1,0 +1,5 @@
+C:\Users\Pichau\Documents\clube-seven\seven-concentrador-bridge\seven-concentrador-v0.0\appsettings.json
+C:\Users\Pichau\Documents\clube-seven\seven-concentrador-bridge\seven-concentrador-v0.0\SevenConcentradorBridge.pdb
+C:\Users\Pichau\Documents\clube-seven\seven-concentrador-bridge\seven-concentrador-v0.0\companytec.dll
+C:\Users\Pichau\Documents\clube-seven\seven-concentrador-bridge\seven-concentrador-v0.0\aspnetcorev2_inprocess.dll
+C:\Users\Pichau\Documents\clube-seven\seven-concentrador-bridge\seven-concentrador-v0.0\SevenConcentradorBridge.exe
