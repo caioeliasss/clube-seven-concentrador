@@ -12,6 +12,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="SevenConcentradorBridge\**\*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Update="companytec.dll">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
       <CopyToPublishDirectory>Always</CopyToPublishDirectory>

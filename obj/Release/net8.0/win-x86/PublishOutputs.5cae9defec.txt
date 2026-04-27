@@ -1,3 +1,0 @@
-C:\Users\Pichau\Documents\clube-seven\seven-concentrador-bridge\publish\appsettings.json
-C:\Users\Pichau\Documents\clube-seven\seven-concentrador-bridge\publish\SevenConcentradorBridge.pdb
-C:\Users\Pichau\Documents\clube-seven\seven-concentrador-bridge\publish\SevenConcentradorBridge.exe
