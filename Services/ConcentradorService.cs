@@ -8,6 +8,7 @@ public class ConcentradorService : IDisposable
 {
     private readonly ILogger<ConcentradorService> _logger;
     private readonly IConfiguration _config;
+    private readonly DllProxyClient _dll;
     private bool _connected;
 
     private readonly BlockingCollection<Action> _fila = new();
@@ -17,6 +18,9 @@ public class ConcentradorService : IDisposable
     {
         _logger = logger;
         _config = config;
+
+        _dll = new DllProxyClient();
+        _dll.OnWorkerRestarted += () => _connected = false;
 
         _thread = new Thread(() =>
         {
@@ -51,13 +55,13 @@ public class ConcentradorService : IDisposable
         if (tipo == "serial")
         {
             var porta = int.Parse(_config["Concentrador:PortaSerial"] ?? "1");
-            resultado = CompanytecDll.C_OpenSerial(porta);
+            resultado = _dll.C_OpenSerial(porta);
         }
         else
         {
             var ip = _config["Concentrador:Ip"] ?? "192.168.0.2";
             var porta = int.Parse(_config["Concentrador:Porta"] ?? "2001");
-            resultado = CompanytecDll.C_OpenSocket2(ip, porta);
+            resultado = _dll.C_OpenSocket2(ip, porta);
         }
 
         _connected = resultado == 1;
@@ -74,9 +78,9 @@ public class ConcentradorService : IDisposable
         if (!_connected) return;
         var tipo = _config["Concentrador:TipoConexao"] ?? "ethernet";
         if (tipo == "serial")
-            CompanytecDll.C_CloseSerial();
+            _dll.C_CloseSerial();
         else
-            CompanytecDll.C_CloseSocket();
+            _dll.C_CloseSocket();
         _connected = false;
         _logger.LogInformation("Desconectado do concentrador");
     });
@@ -84,7 +88,7 @@ public class ConcentradorService : IDisposable
     public bool PresetarBomba(string bico, string valor) => Executar(() =>
     {
         if (!_connected) throw new InvalidOperationException("Não conectado ao concentrador");
-        var result = CompanytecDll.C_PresetPump(bico, valor);
+        var result = _dll.C_PresetPump(bico, valor);
         _logger.LogInformation("Preset bico {Bico} valor {Valor}: {Result}", bico, valor, result);
         return result == 1;
     });
@@ -92,49 +96,49 @@ public class ConcentradorService : IDisposable
     public string LerStatus() => Executar(() =>
     {
         if (!_connected) throw new InvalidOperationException("Não conectado ao concentrador");
-        return CompanytecDll.PtrToString(CompanytecDll.C_readState());
+        return _dll.C_readState();
     });
 
     public string LerAbastecimento() => Executar(() =>
     {
         if (!_connected) throw new InvalidOperationException("Não conectado ao concentrador");
-        return CompanytecDll.PtrToString(CompanytecDll.C_GetSale());
+        return _dll.C_GetSale();
     });
 
     public string LerAbastecimentoPAF() => Executar(() =>
     {
         if (!_connected) throw new InvalidOperationException("Não conectado ao concentrador");
-        return CompanytecDll.PtrToString(CompanytecDll.C_GetSalePAF());
+        return _dll.C_GetSalePAF();
     });
 
     public void IncrementarPonteiro() => Executar(() =>
     {
         if (!_connected) throw new InvalidOperationException("Não conectado ao concentrador");
-        CompanytecDll.C_NextSale();
+        _dll.C_NextSale();
     });
 
     public bool LiberarBico(string bico) => Executar(() =>
     {
         if (!_connected) throw new InvalidOperationException("Não conectado ao concentrador");
-        return CompanytecDll.C_FreePump(bico) == 1;
+        return _dll.C_FreePump(bico) == 1;
     });
 
     public bool BloquearBico(string bico) => Executar(() =>
     {
         if (!_connected) throw new InvalidOperationException("Não conectado ao concentrador");
-        return CompanytecDll.C_BlockPump(bico) == 1;
+        return _dll.C_BlockPump(bico) == 1;
     });
 
     public bool AutorizarBico(string bico) => Executar(() =>
     {
         if (!_connected) throw new InvalidOperationException("Não conectado ao concentrador");
-        return CompanytecDll.C_AutoPump(bico) == 1;
+        return _dll.C_AutoPump(bico) == 1;
     });
 
     public string LerVisualizacao() => Executar(() =>
     {
         if (!_connected) throw new InvalidOperationException("Não conectado ao concentrador");
-        return CompanytecDll.PtrToString(CompanytecDll.C_Visualize());
+        return _dll.C_Visualize();
     });
 
     public List<PrecoCombustivel> LerPrecosTodos() => Executar(() =>
@@ -216,8 +220,7 @@ public class ConcentradorService : IDisposable
         string checksum = (sum % 256).ToString("X2");
         string comando = $">?{payload}{checksum}";
         _logger.LogDebug("TX: {Cmd}", comando);
-        var ptr = CompanytecDll.C_SendReceiveText(comando);
-        string resp = CompanytecDll.PtrToString(ptr);
+        string resp = _dll.C_SendReceiveText(comando);
         _logger.LogDebug("RX: {Resp}", resp);
         return resp;
     }
@@ -266,5 +269,6 @@ public class ConcentradorService : IDisposable
         _fila.CompleteAdding();
         _thread.Join(TimeSpan.FromSeconds(5));
         _fila.Dispose();
+        _dll.Dispose();
     }
 }

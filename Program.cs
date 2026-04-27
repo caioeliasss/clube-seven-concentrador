@@ -1,4 +1,11 @@
+using SevenConcentradorBridge.Native;
 using SevenConcentradorBridge.Services;
+
+if (args.Contains("--worker"))
+{
+    DllWorker.Run();
+    return;
+}
 
 var builder = WebApplication.CreateBuilder(args);
 
