@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("SevenConcentradorBridge")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+004070ff6fe55684782a8380e3be2ea17039948f")]
 [assembly: System.Reflection.AssemblyProductAttribute("SevenConcentradorBridge")]
 [assembly: System.Reflection.AssemblyTitleAttribute("SevenConcentradorBridge")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
