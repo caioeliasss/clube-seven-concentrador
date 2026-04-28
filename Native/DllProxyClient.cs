@@ -100,6 +100,7 @@ public class DllProxyClient : IDisposable
     public int C_AutoPump(string bico)                     => SendInt("C_AutoPump", bico);
     public string C_Visualize()                            => SendStr("C_Visualize");
     public string C_SendReceiveText(string cmd)            => SendStr("C_SendReceiveText", cmd);
+    public string LePPLNivel(string bico, int niveis)      => SendStr("LePPLNivel", bico, niveis);
 
     private void Kill()
     {

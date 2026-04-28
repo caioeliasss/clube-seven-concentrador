@@ -47,6 +47,7 @@ public static class DllWorker
         "C_AutoPump"        => CompanytecDll.C_AutoPump(args[0].GetString()!),
         "C_Visualize"       => CompanytecDll.PtrToString(CompanytecDll.C_Visualize()),
         "C_SendReceiveText" => CompanytecDll.PtrToString(CompanytecDll.C_SendReceiveText(args[0].GetString()!)),
+        "LePPLNivel"        => CompanytecDll.PtrToString(CompanytecDll.LePPLNivel(args[0].GetString()!, args[1].GetInt32())),
         _ => throw new InvalidOperationException($"Unknown method: {method}")
     };
 

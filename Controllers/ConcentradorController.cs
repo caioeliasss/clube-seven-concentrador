@@ -100,6 +100,29 @@ public class ConcentradorController : ControllerBase
         return Ok(preco);
     }
 
+    [HttpGet("precos-dll")]
+    public IActionResult PrecosDll([FromQuery] int niveis = 2)
+    {
+        if (niveis < 0 || niveis > 2)
+            return BadRequest(new { erro = "niveis deve ser 0, 1 ou 2" });
+
+        var precos = _concentrador.LerPrecosDll(niveis);
+        return Ok(precos);
+    }
+
+    [HttpGet("precos-dll/{bico}")]
+    public IActionResult PrecoDllPorBico(string bico, [FromQuery] int niveis = 2)
+    {
+        if (niveis < 0 || niveis > 2)
+            return BadRequest(new { erro = "niveis deve ser 0, 1 ou 2" });
+
+        var preco = _concentrador.LerPrecoDllPorBico(bico, niveis);
+        if (preco == null)
+            return NotFound(new { erro = $"Bico {bico} não encontrado ou DLL retornou falha" });
+
+        return Ok(preco);
+    }
+
     [HttpGet("health")]
     public IActionResult Health()
     {

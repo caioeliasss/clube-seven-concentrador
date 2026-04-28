@@ -116,6 +116,13 @@ public static class CompanytecDll
     [DllImport(DllName, CallingConvention = CallingConvention.StdCall)]
     public static extern IntPtr C_ReadRegisterIdf(int nro);
 
+    // === Preço por litro (seção 2.6.6) ===
+
+    [DllImport(DllName, CallingConvention = CallingConvention.StdCall, CharSet = CharSet.Ansi)]
+    public static extern IntPtr LePPLNivel(
+        [MarshalAs(UnmanagedType.LPStr)] string bico,
+        int niveis);
+
     // === Comando nativo ===
 
     [DllImport(DllName, CallingConvention = CallingConvention.StdCall, CharSet = CharSet.Ansi)]

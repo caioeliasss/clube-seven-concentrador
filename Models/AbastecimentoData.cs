@@ -64,9 +64,21 @@ public class PrecoCombustivel
     public string Bico { get; set; } = "";
     public int CodigoCombustivel { get; set; }
     public string Combustivel { get; set; } = "";
+    public string PrecoAtualRaw { get; set; } = "";
+    public string PrecoAnteriorRaw { get; set; } = "";
     public string PrecoNivel0Raw { get; set; } = "";
     public string PrecoNivel1Raw { get; set; } = "";
     public string PrecoNivel2Raw { get; set; } = "";
+}
+
+public class PrecoPorLitro
+{
+    public string Bico { get; set; } = "";
+    public bool Sucesso { get; set; }
+    public string? Nivel0 { get; set; }
+    public string? Nivel1 { get; set; }
+    public string? Nivel2 { get; set; }
+    public string? Raw { get; set; }
 }
 
 public class WebhookPayload

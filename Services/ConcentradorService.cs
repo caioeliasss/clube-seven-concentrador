@@ -161,6 +161,11 @@ public class ConcentradorService : IDisposable
             int codCombustivel = ParseCodCombustivel(resTabela);
             if (codCombustivel == 0) continue;
 
+            string resPrecoUnitario = EnviarComando($"05{bicoPad}03");
+            var (precoAtual, precoAnterior) = (!string.IsNullOrEmpty(resPrecoUnitario) && !IsRespostaErro(resPrecoUnitario))
+                ? ParsePrecoUnitario(resPrecoUnitario)
+                : ("", "");
+
             string resPrecos = EnviarComando($"05{bicoPad}09");
             if (string.IsNullOrEmpty(resPrecos) || IsRespostaErro(resPrecos))
                 continue;
@@ -172,6 +177,8 @@ public class ConcentradorService : IDisposable
                 Bico = bico,
                 CodigoCombustivel = codCombustivel,
                 Combustivel = GetNomeCombustivel(codCombustivel),
+                PrecoAtualRaw = precoAtual,
+                PrecoAnteriorRaw = precoAnterior,
                 PrecoNivel0Raw = n0,
                 PrecoNivel1Raw = n1,
                 PrecoNivel2Raw = n2,
@@ -193,6 +200,11 @@ public class ConcentradorService : IDisposable
 
         int codCombustivel = ParseCodCombustivel(resTabela);
 
+        string resPrecoUnitario = EnviarComando($"05{bicoPad}03");
+        var (precoAtual, precoAnterior) = (!string.IsNullOrEmpty(resPrecoUnitario) && !IsRespostaErro(resPrecoUnitario))
+            ? ParsePrecoUnitario(resPrecoUnitario)
+            : ("", "");
+
         string resPrecos = EnviarComando($"05{bicoPad}09");
         if (string.IsNullOrEmpty(resPrecos) || IsRespostaErro(resPrecos))
             return null;
@@ -204,10 +216,63 @@ public class ConcentradorService : IDisposable
             Bico = bico,
             CodigoCombustivel = codCombustivel,
             Combustivel = GetNomeCombustivel(codCombustivel),
+            PrecoAtualRaw = precoAtual,
+            PrecoAnteriorRaw = precoAnterior,
             PrecoNivel0Raw = n0,
             PrecoNivel1Raw = n1,
             PrecoNivel2Raw = n2,
         };
+    });
+
+    public PrecoPorLitro? LerPrecoDllPorBico(string bico, int niveis = 2) => Executar(() =>
+    {
+        if (!_connected) throw new InvalidOperationException("Não conectado ao concentrador");
+
+        string bicoPad = bico.PadLeft(2, '0');
+        string raw = _dll.LePPLNivel(bicoPad, niveis);
+
+        if (string.IsNullOrEmpty(raw) || raw == "-1")
+            return null;
+
+        var partes = raw.Split(';');
+        return new PrecoPorLitro
+        {
+            Bico = bico,
+            Sucesso = true,
+            Nivel0 = niveis >= 0 && partes.Length > 0 ? partes[0] : null,
+            Nivel1 = niveis >= 1 && partes.Length > 1 ? partes[1] : null,
+            Nivel2 = niveis >= 2 && partes.Length > 2 ? partes[2] : null,
+            Raw = raw,
+        };
+    });
+
+    public List<PrecoPorLitro> LerPrecosDll(int niveis = 2) => Executar(() =>
+    {
+        if (!_connected) throw new InvalidOperationException("Não conectado ao concentrador");
+
+        var resultado = new List<PrecoPorLitro>();
+
+        foreach (var n in Enumerable.Range(1, 32))
+        {
+            string bicoPad = n.ToString("D2");
+            string raw = _dll.LePPLNivel(bicoPad, niveis);
+
+            if (string.IsNullOrEmpty(raw) || raw == "-1")
+                continue;
+
+            var partes = raw.Split(';');
+            resultado.Add(new PrecoPorLitro
+            {
+                Bico = bicoPad,
+                Sucesso = true,
+                Nivel0 = niveis >= 0 && partes.Length > 0 ? partes[0] : null,
+                Nivel1 = niveis >= 1 && partes.Length > 1 ? partes[1] : null,
+                Nivel2 = niveis >= 2 && partes.Length > 2 ? partes[2] : null,
+                Raw = raw,
+            });
+        }
+
+        return resultado;
     });
 
     private string EnviarComando(string dataHex)
@@ -244,6 +309,13 @@ public class ConcentradorService : IDisposable
             response.Substring(18, 6),
             response.Substring(24, 6)
         );
+    }
+
+    // TT=03: >!CCCC05BBTTATUAANTER KK — preço atual (4) + anterior (4) a partir de pos 12
+    private static (string atual, string anterior) ParsePrecoUnitario(string response)
+    {
+        if (response.Length < 20) return ("", "");
+        return (response.Substring(12, 4), response.Substring(16, 4));
     }
 
     private static string GetNomeCombustivel(int codigo) => codigo switch
