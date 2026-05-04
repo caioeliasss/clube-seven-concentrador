@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using SevenConcentradorBridge.Models;
 using SevenConcentradorBridge.Native;
 
@@ -229,20 +230,16 @@ public class ConcentradorService : IDisposable
         if (!_connected) throw new InvalidOperationException("Não conectado ao concentrador");
 
         string bicoPad = bico.PadLeft(2, '0');
-        string raw = _dll.LePPLNivel(bicoPad, niveis);
+        var ppl = _dll.LePPLNivel(bicoPad, niveis);
+        if (ppl == null) return null;
 
-        if (string.IsNullOrEmpty(raw) || raw == "-1")
-            return null;
-
-        var partes = raw.Split(';');
         return new PrecoPorLitro
         {
             Bico = bico,
             Sucesso = true,
-            Nivel0 = niveis >= 0 && partes.Length > 0 ? partes[0] : null,
-            Nivel1 = niveis >= 1 && partes.Length > 1 ? partes[1] : null,
-            Nivel2 = niveis >= 2 && partes.Length > 2 ? partes[2] : null,
-            Raw = raw,
+            Nivel0 = ppl.Value.Nivel0.ToString(CultureInfo.InvariantCulture),
+            Nivel1 = niveis >= 1 ? ppl.Value.Nivel1.ToString(CultureInfo.InvariantCulture) : null,
+            Nivel2 = niveis >= 2 ? ppl.Value.Nivel2.ToString(CultureInfo.InvariantCulture) : null,
         };
     });
 
@@ -252,23 +249,19 @@ public class ConcentradorService : IDisposable
 
         var resultado = new List<PrecoPorLitro>();
 
-        foreach (var n in Enumerable.Range(1, 32))
+        foreach (var n in Enumerable.Range(4, 5))
         {
             string bicoPad = n.ToString("D2");
-            string raw = _dll.LePPLNivel(bicoPad, niveis);
+            var ppl = _dll.LePPLNivel(bicoPad, niveis);
+            if (ppl == null) continue;
 
-            if (string.IsNullOrEmpty(raw) || raw == "-1")
-                continue;
-
-            var partes = raw.Split(';');
             resultado.Add(new PrecoPorLitro
             {
                 Bico = bicoPad,
                 Sucesso = true,
-                Nivel0 = niveis >= 0 && partes.Length > 0 ? partes[0] : null,
-                Nivel1 = niveis >= 1 && partes.Length > 1 ? partes[1] : null,
-                Nivel2 = niveis >= 2 && partes.Length > 2 ? partes[2] : null,
-                Raw = raw,
+                Nivel0 = ppl.Value.Nivel0.ToString(CultureInfo.InvariantCulture),
+                Nivel1 = niveis >= 1 ? ppl.Value.Nivel1.ToString(CultureInfo.InvariantCulture) : null,
+                Nivel2 = niveis >= 2 ? ppl.Value.Nivel2.ToString(CultureInfo.InvariantCulture) : null,
             });
         }
 

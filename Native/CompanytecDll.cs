@@ -118,6 +118,14 @@ public static class CompanytecDll
 
     // === Preço por litro (seção 2.6.6) ===
 
+    [StructLayout(LayoutKind.Sequential)]
+    public struct PPLNivel
+    {
+        public double Nivel0 { get; set; }
+        public double Nivel1 { get; set; }
+        public double Nivel2 { get; set; }
+    }
+
     [DllImport(DllName, CallingConvention = CallingConvention.StdCall, CharSet = CharSet.Ansi)]
     public static extern IntPtr LePPLNivel(
         [MarshalAs(UnmanagedType.LPStr)] string bico,
