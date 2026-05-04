@@ -106,8 +106,15 @@ public class ConcentradorController : ControllerBase
         if (niveis < 0 || niveis > 2)
             return BadRequest(new { erro = "niveis deve ser 0, 1 ou 2" });
 
-        var precos = _concentrador.LerPrecosDll(niveis);
-        return Ok(precos);
+        try
+        {
+            var precos = _concentrador.LerPrecosDll(niveis);
+            return Ok(precos);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return StatusCode(503, new { erro = ex.Message });
+        }
     }
 
     [HttpGet("precos-dll/{bico}")]
