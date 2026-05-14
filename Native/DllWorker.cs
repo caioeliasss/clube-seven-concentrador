@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text.Json;
 
 namespace SevenConcentradorBridge.Native;
@@ -48,20 +47,16 @@ public static class DllWorker
         "C_AutoPump"        => CompanytecDll.C_AutoPump(args[0].GetString()!),
         "C_Visualize"       => CompanytecDll.PtrToString(CompanytecDll.C_Visualize()),
         "C_SendReceiveText" => CompanytecDll.PtrToString(CompanytecDll.C_SendReceiveText(args[0].GetString()!)),
-        "LePPLNivel"        => ParsePPLNivel(CompanytecDll.PtrToString(CompanytecDll.LePPLNivel(args[0].GetString()!, args[1].GetInt32()))),
+        "LePPLNivel"        => CallLePPLNivel(args[0].GetString()!, args[1].GetInt32()),
         _ => throw new InvalidOperationException($"Unknown method: {method}")
     };
 
     private static object? VoidCall(Action fn) { fn(); return null; }
 
-    private static CompanytecDll.PPLNivel? ParsePPLNivel(string raw)
+    private static CompanytecDll.PPLNivel? CallLePPLNivel(string bico, int niveis)
     {
-        if (string.IsNullOrEmpty(raw) || raw == "-1") return null;
-        var p = raw.Split(';');
-        double n0 = 0, n1 = 0, n2 = 0;
-        if (p.Length > 0) double.TryParse(p[0], NumberStyles.Any, CultureInfo.InvariantCulture, out n0);
-        if (p.Length > 1) double.TryParse(p[1], NumberStyles.Any, CultureInfo.InvariantCulture, out n1);
-        if (p.Length > 2) double.TryParse(p[2], NumberStyles.Any, CultureInfo.InvariantCulture, out n2);
-        return new CompanytecDll.PPLNivel { Nivel0 = n0, Nivel1 = n1, Nivel2 = n2 };
+        CompanytecDll.LePPLNivel(bico, niveis, out var res);
+        if (res.Nivel0 == 0 && res.Nivel1 == 0 && res.Nivel2 == 0) return null;
+        return res;
     }
 }

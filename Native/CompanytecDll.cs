@@ -117,6 +117,8 @@ public static class CompanytecDll
     public static extern IntPtr C_ReadRegisterIdf(int nro);
 
     // === Preço por litro (seção 2.6.6) ===
+    // Delphi: Function LePPLNivel(bico: ansistring; niveis: integer): PPLNivel; stdcall;
+    // Delphi appends hidden var Result as the LAST stdcall arg for records returned by value.
 
     [StructLayout(LayoutKind.Sequential)]
     public struct PPLNivel
@@ -127,9 +129,10 @@ public static class CompanytecDll
     }
 
     [DllImport(DllName, CallingConvention = CallingConvention.StdCall, CharSet = CharSet.Ansi)]
-    public static extern IntPtr LePPLNivel(
+    public static extern void LePPLNivel(
         [MarshalAs(UnmanagedType.LPStr)] string bico,
-        int niveis);
+        int niveis,
+        out PPLNivel result);
 
     // === Comando nativo ===
 
