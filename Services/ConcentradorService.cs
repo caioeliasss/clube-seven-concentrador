@@ -225,25 +225,24 @@ public class ConcentradorService : IDisposable
         };
     });
 
-    public PrecoPorLitro? LerPrecoDllPorBico(string bico, int niveis = 2) => Executar(() =>
+    public PrecoPorLitro? LerPrecoDllPorBico(string bico) => Executar(() =>
     {
         if (!_connected) throw new InvalidOperationException("Não conectado ao concentrador");
 
         string bicoPad = bico.PadLeft(2, '0');
-        var ppl = _dll.LePPLNivel(bicoPad, niveis);
-        if (ppl == null) return null;
+        int raw = _dll.ReadPriceLiterLevel0(bicoPad);
+        if (raw < 0) return null;
 
         return new PrecoPorLitro
         {
             Bico = bico,
             Sucesso = true,
-            Nivel0 = ppl.Value.Nivel0.ToString(CultureInfo.InvariantCulture),
-            Nivel1 = niveis >= 1 ? ppl.Value.Nivel1.ToString(CultureInfo.InvariantCulture) : null,
-            Nivel2 = niveis >= 2 ? ppl.Value.Nivel2.ToString(CultureInfo.InvariantCulture) : null,
+            Nivel0 = (raw / 100m).ToString("F2", CultureInfo.InvariantCulture),
+            Raw = raw.ToString(CultureInfo.InvariantCulture),
         };
     });
 
-    public List<PrecoPorLitro> LerPrecosDll(int niveis = 2) => Executar(() =>
+    public List<PrecoPorLitro> LerPrecosDll() => Executar(() =>
     {
         if (!_connected) throw new InvalidOperationException("Não conectado ao concentrador");
 
@@ -252,16 +251,15 @@ public class ConcentradorService : IDisposable
         foreach (var n in Enumerable.Range(4, 5))
         {
             string bicoPad = n.ToString("D2");
-            var ppl = _dll.LePPLNivel(bicoPad, niveis);
-            if (ppl == null) continue;
+            int raw = _dll.ReadPriceLiterLevel0(bicoPad);
+            if (raw < 0) continue;
 
             resultado.Add(new PrecoPorLitro
             {
                 Bico = bicoPad,
                 Sucesso = true,
-                Nivel0 = ppl.Value.Nivel0.ToString(CultureInfo.InvariantCulture),
-                Nivel1 = niveis >= 1 ? ppl.Value.Nivel1.ToString(CultureInfo.InvariantCulture) : null,
-                Nivel2 = niveis >= 2 ? ppl.Value.Nivel2.ToString(CultureInfo.InvariantCulture) : null,
+                Nivel0 = (raw / 100m).ToString("F2", CultureInfo.InvariantCulture),
+                Raw = raw.ToString(CultureInfo.InvariantCulture),
             });
         }
 
@@ -270,21 +268,34 @@ public class ConcentradorService : IDisposable
 
     // Protocolo RS-232 "AdicionaCheck": (corpo + checksum). checksum = (sum chars) & 0xFF em hex.
     // Exemplo bico 04: TX "(&T04U33)" -> RX "(TG04000000007F)"
-    public string LerPrecoUnitarioRaw(string bico) => Executar(() =>
+    public (string comando, string resposta) LerPrecoUnitarioRaw(string bico) => Executar(() =>
     {
         if (!_connected) throw new InvalidOperationException("Não conectado ao concentrador");
 
         string bicoPad = bico.PadLeft(2, '0');
-        string body = $"&T{bicoPad}U";
+        string body = $"&T{bicoPad}U33";
         int sum = 0;
         foreach (char c in body) sum += c;
-        string comando = $"({body}{(sum & 0xFF):X2})";
+        // string comando = $"({body}{(sum & 0xFF):X2})";
+        string comando = $"({body})";
 
         _logger.LogDebug("TX (raw): {Cmd}", comando);
         string resp = _dll.C_SendReceiveText(comando);
         _logger.LogDebug("RX (raw): {Resp}", resp);
-        return resp;
+        return (comando, resp);
     });
+
+    // 4.8.1 C_SendReceiveText: comando no formato Companytec (ex. "(&T04U33)" — 3.5.4).
+    // Sem tratamento: enviado exatamente como recebido, checksum responsabilidade do chamador.
+    public (string comando, string resposta) EnviarNativo(string comando) => Executar(() =>
+    {
+        if (!_connected) throw new InvalidOperationException("Não conectado ao concentrador");
+        _logger.LogDebug("TX (nativo): {Cmd}", comando);
+        string resposta = _dll.C_SendReceiveText(comando);
+        _logger.LogDebug("RX (nativo): {Resp}", resposta);
+        return (comando, resposta);
+    });
+
 
     private string EnviarComando(string dataHex)
     {

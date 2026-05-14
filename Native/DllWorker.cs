@@ -51,7 +51,7 @@ public static class DllWorker
         "C_AutoPump"        => CompanytecDll.C_AutoPump(args[0].GetString()!),
         "C_Visualize"       => CompanytecDll.PtrToString(CompanytecDll.C_Visualize()),
         "C_SendReceiveText" => CompanytecDll.PtrToString(CompanytecDll.C_SendReceiveText(args[0].GetString()!)),
-        "LePPLNivel"        => CallLePPLNivel(args[0].GetString()!, args[1].GetInt32()),
+        "ReadPriceLiterLevel0" => CallReadPriceLiterLevel0(args[0].GetString()!),
         _ => throw new InvalidOperationException($"Unknown method: {method}")
     };
 
@@ -65,19 +65,18 @@ public static class DllWorker
         try { File.AppendAllText(LogPath, $"{DateTime.Now:O} {msg}\n"); } catch { }
     }
 
-    private static CompanytecDll.PPLNivel? CallLePPLNivel(string bico, int niveis)
+    private static int CallReadPriceLiterLevel0(string nozzle)
     {
-        Log($"LePPLNivel ENTER bico='{bico}' niveis={niveis}");
+        Log($"ReadPriceLiterLevel0 ENTER nozzle='{nozzle}'");
         try
         {
-            CompanytecDll.LePPLNivel(bico, niveis, out var res);
-            Log($"LePPLNivel OK n0={res.Nivel0} n1={res.Nivel1} n2={res.Nivel2}");
-            if (res.Nivel0 == -1.0) return null;
-            return res;
+            int ret = CompanytecDll.C_ReadPriceLiterLevel0(nozzle);
+            Log($"ReadPriceLiterLevel0 ret={ret}");
+            return ret;
         }
         catch (Exception ex)
         {
-            Log($"LePPLNivel EX {ex.GetType().Name}: {ex.Message}");
+            Log($"ReadPriceLiterLevel0 EX {ex.GetType().Name}: {ex.Message}");
             throw;
         }
     }

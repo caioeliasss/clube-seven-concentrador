@@ -116,23 +116,14 @@ public static class CompanytecDll
     [DllImport(DllName, CallingConvention = CallingConvention.StdCall)]
     public static extern IntPtr C_ReadRegisterIdf(int nro);
 
-    // === Preço por litro (seção 2.6.6) ===
-    // Delphi: Function LePPLNivel(bico: ansistring; niveis: integer): PPLNivel; stdcall;
-    // Delphi appends hidden var Result as the LAST stdcall arg for records returned by value.
+    // === Preço por litro nível 0 ===
+    // Assinatura nativa C-friendly (pchar/integer), sem shim.
+    // Retorno: preço × 100 (ex: 590 = R$5,90). Valor < 0 indica falha.
 
-    [StructLayout(LayoutKind.Sequential)]
-    public struct PPLNivel
-    {
-        public double Nivel0 { get; set; }
-        public double Nivel1 { get; set; }
-        public double Nivel2 { get; set; }
-    }
-
-    [DllImport(DllName, CallingConvention = CallingConvention.StdCall, CharSet = CharSet.Ansi)]
-    public static extern void LePPLNivel(
-        [MarshalAs(UnmanagedType.LPStr)] string bico,
-        int niveis,
-        out PPLNivel result);
+    [DllImport(DllName, EntryPoint = "ReadPriceLiterLevel0",
+        CallingConvention = CallingConvention.StdCall, CharSet = CharSet.Ansi)]
+    public static extern int C_ReadPriceLiterLevel0(
+        [MarshalAs(UnmanagedType.LPStr)] string nozzle);
 
     // === Comando nativo ===
 

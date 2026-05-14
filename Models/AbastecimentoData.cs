@@ -59,6 +59,12 @@ public class BicoRequest
     public string Bico { get; set; } = "";
 }
 
+public class NativeCommandRequest
+{
+    public string Comando { get; set; } = "";
+}
+
+
 public class PrecoCombustivel
 {
     public string Bico { get; set; } = "";

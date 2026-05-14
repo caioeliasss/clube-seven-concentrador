@@ -64,8 +64,13 @@ public class DllProxyClient : IDisposable
             var line = _worker.StandardOutput.ReadLine();
             if (line == null)
             {
+                int? exitCode = null;
+                try { if (_worker.HasExited) exitCode = _worker.ExitCode; } catch { }
                 Restart();
-                return null;
+                throw new InvalidOperationException(
+                    $"DLL worker crashed durante '{method}' (exit code {exitCode?.ToString() ?? "?"}). " +
+                    "Provável Access Violation na DLL nativa. Confira args/marshalling. " +
+                    "Log: %TEMP%\\seven-dll-worker.log");
             }
 
             using var doc = JsonDocument.Parse(line);
@@ -77,7 +82,12 @@ public class DllProxyClient : IDisposable
             return null;
         }
         catch (InvalidOperationException) { throw; }
-        catch { Restart(); return null; }
+        catch (Exception ex)
+        {
+            Restart();
+            throw new InvalidOperationException(
+                $"Falha na comunicação com DLL worker durante '{method}': {ex.GetType().Name}: {ex.Message}", ex);
+        }
     }
 
     private int SendInt(string method, params object?[] args) =>
@@ -100,12 +110,8 @@ public class DllProxyClient : IDisposable
     public int C_AutoPump(string bico)                     => SendInt("C_AutoPump", bico);
     public string C_Visualize()                            => SendStr("C_Visualize");
     public string C_SendReceiveText(string cmd)            => SendStr("C_SendReceiveText", cmd);
-    public CompanytecDll.PPLNivel? LePPLNivel(string bico, int niveis)
-    {
-        var json = Send("LePPLNivel", bico, niveis);
-        if (json == null) return null;
-        return JsonSerializer.Deserialize<CompanytecDll.PPLNivel>(json);
-    }
+    public int ReadPriceLiterLevel0(string nozzle) =>
+        SendInt("ReadPriceLiterLevel0", nozzle);
 
     private void Kill()
     {

@@ -101,14 +101,11 @@ public class ConcentradorController : ControllerBase
     }
 
     [HttpGet("precos-dll")]
-    public IActionResult PrecosDll([FromQuery] int niveis = 2)
+    public IActionResult PrecosDll()
     {
-        if (niveis < 0 || niveis > 2)
-            return BadRequest(new { erro = "niveis deve ser 0, 1 ou 2" });
-
         try
         {
-            var precos = _concentrador.LerPrecosDll(niveis);
+            var precos = _concentrador.LerPrecosDll();
             return Ok(precos);
         }
         catch (InvalidOperationException ex)
@@ -118,14 +115,11 @@ public class ConcentradorController : ControllerBase
     }
 
     [HttpGet("precos-dll/{bico}")]
-    public IActionResult PrecoDllPorBico(string bico, [FromQuery] int niveis = 2)
+    public IActionResult PrecoDllPorBico(string bico)
     {
-        if (niveis < 0 || niveis > 2)
-            return BadRequest(new { erro = "niveis deve ser 0, 1 ou 2" });
-
         try
         {
-            var preco = _concentrador.LerPrecoDllPorBico(bico, niveis);
+            var preco = _concentrador.LerPrecoDllPorBico(bico);
             if (preco == null)
                 return NotFound(new { erro = $"Bico {bico} não encontrado ou DLL retornou falha" });
 
@@ -137,13 +131,30 @@ public class ConcentradorController : ControllerBase
         }
     }
 
-    [HttpGet("preco-raw/{bico}")]
-    public IActionResult PrecoRaw(string bico)
+    // [HttpGet("preco-raw/{bico}")]
+    // public IActionResult PrecoRaw(string bico)
+    // {
+    //     try
+    //     {
+    //         var (comando, resposta) = _concentrador.LerPrecoUnitarioRaw(bico);
+    //         return Ok(new { bico, comandoEnviado = comando, respostaRaw = resposta });
+    //     }
+    //     catch (InvalidOperationException ex)
+    //     {
+    //         return StatusCode(503, new { erro = ex.Message });
+    //     }
+    // }
+
+    [HttpPost("native")]
+    public IActionResult ComandoNativo([FromBody] NativeCommandRequest request)
     {
+        if (string.IsNullOrWhiteSpace(request?.Comando))
+            return BadRequest(new { erro = "Comando vazio" });
+
         try
         {
-            var resp = _concentrador.LerPrecoUnitarioRaw(bico);
-            return Ok(new { bico, comandoEnviado = $"(&T{bico.PadLeft(2, '0')}U..)", respostaRaw = resp });
+            var (comando, resposta) = _concentrador.EnviarNativo(request.Comando);
+            return Ok(new { comando, resposta });
         }
         catch (InvalidOperationException ex)
         {
