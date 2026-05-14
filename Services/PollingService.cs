@@ -43,7 +43,14 @@ public class PollingService : BackgroundService
         // Conectar ao concentrador na inicialização
         while (!stoppingToken.IsCancellationRequested)
         {
-            if (_concentrador.Conectar()) break;
+            try
+            {
+                if (_concentrador.Conectar()) break;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Erro ao conectar ao concentrador");
+            }
             _logger.LogWarning("Tentando reconectar ao concentrador em 5s...");
             await Task.Delay(5000, stoppingToken);
         }
