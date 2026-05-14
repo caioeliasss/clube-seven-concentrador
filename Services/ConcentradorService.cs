@@ -268,6 +268,24 @@ public class ConcentradorService : IDisposable
         return resultado;
     });
 
+    // Protocolo RS-232 "AdicionaCheck": (corpo + checksum). checksum = (sum chars) & 0xFF em hex.
+    // Exemplo bico 04: TX "(&T04U33)" -> RX "(TG04000000007F)"
+    public string LerPrecoUnitarioRaw(string bico) => Executar(() =>
+    {
+        if (!_connected) throw new InvalidOperationException("Não conectado ao concentrador");
+
+        string bicoPad = bico.PadLeft(2, '0');
+        string body = $"&T{bicoPad}U";
+        int sum = 0;
+        foreach (char c in body) sum += c;
+        string comando = $"({body}{(sum & 0xFF):X2})";
+
+        _logger.LogDebug("TX (raw): {Cmd}", comando);
+        string resp = _dll.C_SendReceiveText(comando);
+        _logger.LogDebug("RX (raw): {Resp}", resp);
+        return resp;
+    });
+
     private string EnviarComando(string dataHex)
     {
         string sizeHex = dataHex.Length.ToString("X4");

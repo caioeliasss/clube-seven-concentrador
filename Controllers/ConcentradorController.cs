@@ -137,6 +137,20 @@ public class ConcentradorController : ControllerBase
         }
     }
 
+    [HttpGet("preco-raw/{bico}")]
+    public IActionResult PrecoRaw(string bico)
+    {
+        try
+        {
+            var resp = _concentrador.LerPrecoUnitarioRaw(bico);
+            return Ok(new { bico, comandoEnviado = $"(&T{bico.PadLeft(2, '0')}U..)", respostaRaw = resp });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return StatusCode(503, new { erro = ex.Message });
+        }
+    }
+
     [HttpGet("health")]
     public IActionResult Health()
     {
