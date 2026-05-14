@@ -123,11 +123,18 @@ public class ConcentradorController : ControllerBase
         if (niveis < 0 || niveis > 2)
             return BadRequest(new { erro = "niveis deve ser 0, 1 ou 2" });
 
-        var preco = _concentrador.LerPrecoDllPorBico(bico, niveis);
-        if (preco == null)
-            return NotFound(new { erro = $"Bico {bico} não encontrado ou DLL retornou falha" });
+        try
+        {
+            var preco = _concentrador.LerPrecoDllPorBico(bico, niveis);
+            if (preco == null)
+                return NotFound(new { erro = $"Bico {bico} não encontrado ou DLL retornou falha" });
 
-        return Ok(preco);
+            return Ok(preco);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return StatusCode(503, new { erro = ex.Message });
+        }
     }
 
     [HttpGet("health")]
