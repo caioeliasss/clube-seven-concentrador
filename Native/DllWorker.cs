@@ -6,6 +6,7 @@ public static class DllWorker
 {
     public static void Run()
     {
+        Log($"WORKER START pid={Environment.ProcessId} logPath={LogPath}");
         string? line;
         while ((line = Console.ReadLine()) != null)
         {
@@ -19,12 +20,15 @@ public static class DllWorker
                     ? argsEl.EnumerateArray().ToArray()
                     : Array.Empty<JsonElement>();
 
+                Log($"REQ m={method} args={line}");
                 var result = Dispatch(method, args);
                 responseJson = "{\"r\":" + JsonSerializer.Serialize(result) + "}";
+                Log($"RES {responseJson}");
             }
             catch (Exception ex)
             {
                 responseJson = "{\"e\":" + JsonSerializer.Serialize(ex.Message) + "}";
+                Log($"ERR {ex.GetType().Name}: {ex.Message}");
             }
 
             Console.WriteLine(responseJson);
@@ -53,23 +57,28 @@ public static class DllWorker
 
     private static object? VoidCall(Action fn) { fn(); return null; }
 
-    private static CompanytecDll.PPLNivel? CallLePPLNivel(string bico, int niveis)
+    private static readonly string LogPath =
+        Path.Combine(Path.GetTempPath(), "seven-dll-worker.log");
+
+    private static void Log(string msg)
     {
-        CompanytecDll.LePPLNivel(bico, niveis, out var res);
-        LogPpl(bico, niveis, res);
-        // Doc: -1 indicates failure. Any other value (incl 0) is a real reading.
-        if (res.Nivel0 == -1.0) return null;
-        return res;
+        try { File.AppendAllText(LogPath, $"{DateTime.Now:O} {msg}\n"); } catch { }
     }
 
-    private static void LogPpl(string bico, int niveis, CompanytecDll.PPLNivel res)
+    private static CompanytecDll.PPLNivel? CallLePPLNivel(string bico, int niveis)
     {
+        Log($"LePPLNivel ENTER bico='{bico}' niveis={niveis}");
         try
         {
-            var path = Path.Combine(AppContext.BaseDirectory, "dll-worker.log");
-            File.AppendAllText(path,
-                $"{DateTime.Now:O} LePPLNivel bico={bico} niveis={niveis} n0={res.Nivel0} n1={res.Nivel1} n2={res.Nivel2}\n");
+            CompanytecDll.LePPLNivel(bico, niveis, out var res);
+            Log($"LePPLNivel OK n0={res.Nivel0} n1={res.Nivel1} n2={res.Nivel2}");
+            if (res.Nivel0 == -1.0) return null;
+            return res;
         }
-        catch { }
+        catch (Exception ex)
+        {
+            Log($"LePPLNivel EX {ex.GetType().Name}: {ex.Message}");
+            throw;
+        }
     }
 }
