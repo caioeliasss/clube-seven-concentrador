@@ -56,7 +56,20 @@ public static class DllWorker
     private static CompanytecDll.PPLNivel? CallLePPLNivel(string bico, int niveis)
     {
         CompanytecDll.LePPLNivel(bico, niveis, out var res);
-        if (res.Nivel0 == 0 && res.Nivel1 == 0 && res.Nivel2 == 0) return null;
+        LogPpl(bico, niveis, res);
+        // Doc: -1 indicates failure. Any other value (incl 0) is a real reading.
+        if (res.Nivel0 == -1.0) return null;
         return res;
+    }
+
+    private static void LogPpl(string bico, int niveis, CompanytecDll.PPLNivel res)
+    {
+        try
+        {
+            var path = Path.Combine(AppContext.BaseDirectory, "dll-worker.log");
+            File.AppendAllText(path,
+                $"{DateTime.Now:O} LePPLNivel bico={bico} niveis={niveis} n0={res.Nivel0} n1={res.Nivel1} n2={res.Nivel2}\n");
+        }
+        catch { }
     }
 }
