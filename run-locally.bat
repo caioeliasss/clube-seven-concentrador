@@ -7,3 +7,4 @@ echo Press Ctrl+C to stop.
 echo.
 
 dotnet run --project SevenConcentradorBridge.csproj --urls "http://localhost:5100"
+pause
