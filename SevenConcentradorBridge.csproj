@@ -17,6 +17,10 @@
 
   <ItemGroup>
     <Compile Remove="SevenConcentradorBridge\**\*.cs" />
+    <Compile Remove="docs\**\*" />
+    <EmbeddedResource Remove="docs\**\*" />
+    <Content Remove="docs\**\*" />
+    <None Remove="docs\**\*" />
   </ItemGroup>
 
   <ItemGroup>
