@@ -99,20 +99,33 @@ public static class DllWorker
         IntPtr buf = System.Runtime.InteropServices.Marshal.AllocHGlobal(BufSize);
         try
         {
+            for (int i = 0; i < BufSize; i++)
+                System.Runtime.InteropServices.Marshal.WriteByte(buf, i, 0);
+
             var bytes = System.Text.Encoding.ASCII.GetBytes(comando);
             if (bytes.Length >= BufSize)
                 throw new InvalidOperationException($"Comando excede buffer ({bytes.Length} >= {BufSize})");
 
             System.Runtime.InteropServices.Marshal.Copy(bytes, 0, buf, bytes.Length);
-            System.Runtime.InteropServices.Marshal.WriteByte(buf, bytes.Length, 0);
 
             IntPtr ptr = buf;
+            Log($"SendReceiveText CALL bufBefore=0x{buf.ToInt64():X}");
             int len = CompanytecDll.SendReceiveText(ref ptr, timeout);
-            Log($"SendReceiveText ret len={len}");
-            if (len <= 0) return "";
+            Log($"SendReceiveText ret len={len} ptrAfter=0x{ptr.ToInt64():X} reapontou={(ptr != buf)}");
 
-            int safeLen = Math.Min(len, BufSize);
-            return System.Runtime.InteropServices.Marshal.PtrToStringAnsi(ptr, safeLen) ?? "";
+            string fromBuf = ReadAnsiZ(buf, BufSize);
+            string fromPtr = (ptr != buf) ? ReadAnsiZ(ptr, BufSize) : fromBuf;
+            Log($"SendReceiveText fromBuf='{fromBuf}' fromPtr='{fromPtr}'");
+
+            string resp = !string.IsNullOrEmpty(fromPtr) ? fromPtr : fromBuf;
+            if (!string.IsNullOrEmpty(resp)) return resp;
+
+            if (len > 0)
+            {
+                int safeLen = Math.Min(len, BufSize);
+                return System.Runtime.InteropServices.Marshal.PtrToStringAnsi(ptr, safeLen) ?? "";
+            }
+            return "";
         }
         catch (Exception ex)
         {
@@ -123,6 +136,23 @@ public static class DllWorker
         {
             System.Runtime.InteropServices.Marshal.FreeHGlobal(buf);
         }
+    }
+
+    private static string ReadAnsiZ(IntPtr ptr, int max)
+    {
+        if (ptr == IntPtr.Zero) return "";
+        try
+        {
+            var sb = new System.Text.StringBuilder(64);
+            for (int i = 0; i < max; i++)
+            {
+                byte b = System.Runtime.InteropServices.Marshal.ReadByte(ptr, i);
+                if (b == 0) break;
+                sb.Append((char)b);
+            }
+            return sb.ToString();
+        }
+        catch { return ""; }
     }
 
     private static int CallReadPriceLiterLevel0(string nozzle)
