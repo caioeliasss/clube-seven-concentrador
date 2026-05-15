@@ -127,8 +127,26 @@ public static class CompanytecDll
 
     // === Comando nativo ===
 
+    // C_SendReceiveText assina `(comando:shortstring):shortstring` no Delphi.
+    // ShortString = byte[256] com byte 0 = comprimento. P/Invoke com LPStr causa
+    // Access Violation (DLL lê byte 0 como tamanho). Mantido apenas para o caminho
+    // EnviarComando legado que passa strings curtas onde a AV não dispara.
     [DllImport(DllName, CallingConvention = CallingConvention.StdCall, CharSet = CharSet.Ansi)]
     public static extern IntPtr C_SendReceiveText([MarshalAs(UnmanagedType.LPStr)] string comando);
+
+    // Export .NET-friendly: buffer full-duplex (in=command, out=response), timeout ms, retorna len ou 0.
+    // Sample VB.NET: Declare Function VB_SendReceiveText Lib "companytec.dll"
+    //   (ByRef comando As Byte(), ByVal timeout As Short) As Short
+    [DllImport(DllName, CallingConvention = CallingConvention.StdCall)]
+    public static extern short VB_SendReceiveText(byte[] comando, short timeout);
+
+    // Assinatura Delphi (dllcompanytec.pas:346):
+    //   Function SendReceiveText(var st: PAnsiChar; timeout: integer): integer; stdcall;
+    // var PAnsiChar = char**. DLL lê comando de *st, escreve resposta no mesmo buffer
+    // (ou reaponta *st para buffer interno). Retorno = tamanho.
+    [DllImport(DllName, EntryPoint = "SendReceiveText",
+        CallingConvention = CallingConvention.StdCall)]
+    public static extern int SendReceiveText(ref IntPtr st, int timeout);
 
     public static string PtrToString(IntPtr ptr)
     {

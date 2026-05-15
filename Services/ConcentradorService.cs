@@ -285,13 +285,16 @@ public class ConcentradorService : IDisposable
         return (comando, resp);
     });
 
-    // 4.8.1 C_SendReceiveText: comando no formato Companytec (ex. "(&T04U33)" — 3.5.4).
-    // Sem tratamento: enviado exatamente como recebido, checksum responsabilidade do chamador.
+    // Envia comando nativo no formato Companytec (ex. "(&T04U33)" — protocolo 3.5.4).
+    // Usa export SendReceiveText (dllcompanytec.pas:346):
+    //   Function SendReceiveText(var st: PAnsiChar; timeout: integer): integer; stdcall;
+    // ABI C-friendly (PAnsiChar*), evita Delphi ShortString do C_SendReceiveText e
+    // double-indirection ByRef Byte() do VB_SendReceiveText.
     public (string comando, string resposta) EnviarNativo(string comando) => Executar(() =>
     {
         if (!_connected) throw new InvalidOperationException("Não conectado ao concentrador");
         _logger.LogDebug("TX (nativo): {Cmd}", comando);
-        string resposta = _dll.C_SendReceiveText(comando);
+        string resposta = _dll.SendReceiveText(comando);
         _logger.LogDebug("RX (nativo): {Resp}", resposta);
         return (comando, resposta);
     });

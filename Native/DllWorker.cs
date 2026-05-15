@@ -51,6 +51,8 @@ public static class DllWorker
         "C_AutoPump"        => CompanytecDll.C_AutoPump(args[0].GetString()!),
         "C_Visualize"       => CompanytecDll.PtrToString(CompanytecDll.C_Visualize()),
         "C_SendReceiveText" => CompanytecDll.PtrToString(CompanytecDll.C_SendReceiveText(args[0].GetString()!)),
+        "VB_SendReceiveText" => CallVbSendReceiveText(args[0].GetString()!, args.Length > 1 ? (short)args[1].GetInt32() : (short)2000),
+        "SendReceiveText" => CallSendReceiveText(args[0].GetString()!, args.Length > 1 ? args[1].GetInt32() : 2000),
         "ReadPriceLiterLevel0" => CallReadPriceLiterLevel0(args[0].GetString()!),
         _ => throw new InvalidOperationException($"Unknown method: {method}")
     };
@@ -63,6 +65,64 @@ public static class DllWorker
     private static void Log(string msg)
     {
         try { File.AppendAllText(LogPath, $"{DateTime.Now:O} {msg}\n"); } catch { }
+    }
+
+    private static string CallVbSendReceiveText(string comando, short timeout)
+    {
+        Log($"VB_SendReceiveText ENTER cmd='{comando}' timeout={timeout}");
+        try
+        {
+            var buf = new byte[512];
+            var data = System.Text.Encoding.ASCII.GetBytes(comando);
+            if (data.Length >= buf.Length)
+                throw new InvalidOperationException($"Comando excede buffer ({data.Length} >= {buf.Length})");
+            Array.Copy(data, buf, data.Length);
+
+            short len = CompanytecDll.VB_SendReceiveText(buf, timeout);
+            Log($"VB_SendReceiveText ret len={len}");
+            if (len <= 0) return "";
+
+            int safeLen = Math.Min((int)len, buf.Length);
+            return System.Text.Encoding.ASCII.GetString(buf, 0, safeLen);
+        }
+        catch (Exception ex)
+        {
+            Log($"VB_SendReceiveText EX {ex.GetType().Name}: {ex.Message}");
+            throw;
+        }
+    }
+
+    private static string CallSendReceiveText(string comando, int timeout)
+    {
+        Log($"SendReceiveText ENTER cmd='{comando}' timeout={timeout}");
+        const int BufSize = 1024;
+        IntPtr buf = System.Runtime.InteropServices.Marshal.AllocHGlobal(BufSize);
+        try
+        {
+            var bytes = System.Text.Encoding.ASCII.GetBytes(comando);
+            if (bytes.Length >= BufSize)
+                throw new InvalidOperationException($"Comando excede buffer ({bytes.Length} >= {BufSize})");
+
+            System.Runtime.InteropServices.Marshal.Copy(bytes, 0, buf, bytes.Length);
+            System.Runtime.InteropServices.Marshal.WriteByte(buf, bytes.Length, 0);
+
+            IntPtr ptr = buf;
+            int len = CompanytecDll.SendReceiveText(ref ptr, timeout);
+            Log($"SendReceiveText ret len={len}");
+            if (len <= 0) return "";
+
+            int safeLen = Math.Min(len, BufSize);
+            return System.Runtime.InteropServices.Marshal.PtrToStringAnsi(ptr, safeLen) ?? "";
+        }
+        catch (Exception ex)
+        {
+            Log($"SendReceiveText EX {ex.GetType().Name}: {ex.Message}");
+            throw;
+        }
+        finally
+        {
+            System.Runtime.InteropServices.Marshal.FreeHGlobal(buf);
+        }
     }
 
     private static int CallReadPriceLiterLevel0(string nozzle)

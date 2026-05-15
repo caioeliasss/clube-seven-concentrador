@@ -110,6 +110,10 @@ public class DllProxyClient : IDisposable
     public int C_AutoPump(string bico)                     => SendInt("C_AutoPump", bico);
     public string C_Visualize()                            => SendStr("C_Visualize");
     public string C_SendReceiveText(string cmd)            => SendStr("C_SendReceiveText", cmd);
+    public string VB_SendReceiveText(string cmd, int timeoutMs = 2000)
+        => SendStr("VB_SendReceiveText", cmd, timeoutMs);
+    public string SendReceiveText(string cmd, int timeoutMs = 2000)
+        => SendStr("SendReceiveText", cmd, timeoutMs);
     public int ReadPriceLiterLevel0(string nozzle) =>
         SendInt("ReadPriceLiterLevel0", nozzle);
 
