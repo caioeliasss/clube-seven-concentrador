@@ -57,6 +57,54 @@ public class ConcentradorController : ControllerBase
         return Ok(new { dados = resp.Raw, bicos = resp.Bicos });
     }
 
+    [HttpGet("visualizacao/stream")]
+    public async Task VisualizacaoStream([FromQuery] int? intervaloMs, CancellationToken ct)
+    {
+        Response.Headers.Append("Content-Type", "text/event-stream");
+        Response.Headers.Append("Cache-Control", "no-cache");
+        Response.Headers.Append("X-Accel-Buffering", "no");
+        Response.Headers.Append("Connection", "keep-alive");
+
+        var cfgMs = int.TryParse(HttpContext.RequestServices
+            .GetRequiredService<IConfiguration>()["Polling:IntervaloMs"], out var v) ? v : 1000;
+        var delay = Math.Max(200, intervaloMs ?? cfgMs);
+
+        var jsonOpts = new System.Text.Json.JsonSerializerOptions
+        {
+            PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
+        };
+
+        try
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                VisualizacaoResponse resp;
+                try
+                {
+                    resp = _concentrador.LerVisualizacaoParsed();
+                }
+                catch (Exception ex)
+                {
+                    var errJson = System.Text.Json.JsonSerializer.Serialize(new { erro = ex.Message }, jsonOpts);
+                    await Response.WriteAsync($"event: erro\ndata: {errJson}\n\n", ct);
+                    await Response.Body.FlushAsync(ct);
+                    await Task.Delay(delay, ct);
+                    continue;
+                }
+
+                var payload = System.Text.Json.JsonSerializer.Serialize(
+                    new { dados = resp.Raw, bicos = resp.Bicos, ts = DateTime.UtcNow },
+                    jsonOpts);
+
+                await Response.WriteAsync($"event: visualizacao\ndata: {payload}\n\n", ct);
+                await Response.Body.FlushAsync(ct);
+
+                await Task.Delay(delay, ct);
+            }
+        }
+        catch (OperationCanceledException) { /* cliente desconectou */ }
+    }
+
     [HttpPost("liberar")]
     public IActionResult Liberar([FromBody] BicoRequest request)
     {
