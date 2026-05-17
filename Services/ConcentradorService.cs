@@ -130,6 +130,60 @@ public class ConcentradorService : IDisposable
         _dll.C_NextSale();
     });
 
+    // Equivale a (&A) + (&I) do protocolo, via DLL: C_GetSale lê abastecimento finalizado,
+    // C_NextSale avança ponteiro. Encapsulado num único Executar para atomicidade na thread DLL.
+    public LerIncrementarResponse LerEIncrementar() => Executar(() =>
+    {
+        if (!_connected) throw new InvalidOperationException("Não conectado ao concentrador");
+        string raw = _dll.C_GetSale();
+        var resp = ParseGetSale(raw);
+        if (resp.Vazio) return resp;
+        _dll.C_NextSale();
+        return resp;
+    });
+
+    // Resposta &A (CBC04+): (TTTTTTLLLLLLPPPPVVCCCCBBDDHHMMNNRRRREEEEEEEEEESSKK). "(0)" = vazio.
+    private static LerIncrementarResponse ParseGetSale(string raw)
+    {
+        var resp = new LerIncrementarResponse { Raw = raw };
+        string p = StripParens(raw);
+        if (string.IsNullOrEmpty(p) || p == "0" || p.StartsWith("FFFFFF"))
+        {
+            resp.Vazio = true;
+            return resp;
+        }
+        if (p.Length < 30) { resp.Vazio = true; return resp; }
+
+        string totalRaw = p.Substring(0, 6);
+        string litrosRaw = p.Substring(6, 6);
+        string puRaw = p.Substring(12, 4);
+        // V[2]@16, C[4]@18, B[2]@22, D[2]@24, H[2]@26, M[2]@28, N[2]@30
+        string bico = p.Substring(22, 2);
+        string dia = p.Substring(24, 2);
+        string hora = p.Substring(26, 2);
+        string min = p.Substring(28, 2);
+        string mes = p.Length >= 32 ? p.Substring(30, 2) : "";
+
+        if (decimal.TryParse(totalRaw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var t))
+            resp.ValorTotal = t / 100m;
+        if (decimal.TryParse(litrosRaw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var l))
+            resp.Volume = l / 100m;
+        if (decimal.TryParse(puRaw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var pu))
+            resp.ValorPorLitro = pu / 1000m;
+        resp.Bico = bico;
+
+        if (int.TryParse(dia, out var d) && int.TryParse(hora, out var h)
+            && int.TryParse(min, out var mm)
+            && int.TryParse(string.IsNullOrEmpty(mes) ? DateTime.Now.Month.ToString() : mes, out var mn))
+        {
+            try { resp.Ts = new DateTime(DateTime.Now.Year, mn, d, h, mm, 0); }
+            catch { resp.Ts = null; }
+        }
+
+        resp.Vazio = resp.ValorTotal == 0 && resp.Volume == 0;
+        return resp;
+    }
+
     public bool LiberarBico(string bico) => Executar(() =>
     {
         if (!_connected) throw new InvalidOperationException("Não conectado ao concentrador");
@@ -348,6 +402,72 @@ public class ConcentradorService : IDisposable
         string raw = EnviarRawCompanytec(body);
         return ParseRegistro(raw, posicao);
     });
+
+    // Varre a fila circular (PAF1) para trás a partir do ponteiro Write, retornando
+    // registros que casem por bico + litros (±tol) + horário (±tol).
+    // Critérios opcionais: passar litros=null ignora filtro de litros; quando=null ignora filtro de tempo.
+    public List<AbastecimentoRegistro> BuscarAbastecimento(
+        string bico,
+        decimal? litros,
+        decimal toleranciaLitros,
+        DateTime? quando,
+        int toleranciaMin,
+        int maxScan)
+    {
+        if (string.IsNullOrWhiteSpace(bico)) throw new ArgumentException("bico obrigatório", nameof(bico));
+        if (maxScan <= 0 || maxScan > 10000) throw new ArgumentOutOfRangeException(nameof(maxScan), "1-10000");
+
+        var ponteiros = LerPonteiros();
+        if (!ponteiros.Valido) throw new InvalidOperationException("Falha ao ler ponteiros");
+
+        string bicoPad = bico.PadLeft(2, '0');
+        const int capacidade = 10000;
+        var matches = new List<AbastecimentoRegistro>();
+        int start = ponteiros.Write;
+
+        for (int i = 1; i <= maxScan; i++)
+        {
+            int pos = ((start - i) % capacidade + capacidade) % capacidade;
+            AbastecimentoRegistro reg;
+            try { reg = LerRegistro(pos); }
+            catch { continue; }
+
+            if (reg.Vazio) continue;
+            if (!string.Equals(reg.Bico, bicoPad, StringComparison.Ordinal)) continue;
+
+            if (litros.HasValue)
+            {
+                if (!reg.Litros.HasValue) continue;
+                if (Math.Abs(reg.Litros.Value - litros.Value) > toleranciaLitros) continue;
+            }
+
+            if (quando.HasValue)
+            {
+                if (!int.TryParse(reg.Dia, NumberStyles.Integer, CultureInfo.InvariantCulture, out var d) ||
+                    !int.TryParse(reg.Mes, NumberStyles.Integer, CultureInfo.InvariantCulture, out var m) ||
+                    !int.TryParse(reg.Hora, NumberStyles.Integer, CultureInfo.InvariantCulture, out var h) ||
+                    !int.TryParse(reg.Minuto, NumberStyles.Integer, CultureInfo.InvariantCulture, out var mm))
+                    continue;
+
+                int ano = quando.Value.Year;
+                DateTime regTime;
+                try { regTime = new DateTime(ano, m, d, h, mm, 0); }
+                catch { continue; }
+
+                // Lida com virada de ano: se registro for >180d no futuro, assume ano anterior.
+                if ((regTime - quando.Value).TotalDays > 180)
+                    regTime = regTime.AddYears(-1);
+                else if ((quando.Value - regTime).TotalDays > 180)
+                    regTime = regTime.AddYears(1);
+
+                if (Math.Abs((regTime - quando.Value).TotalMinutes) > toleranciaMin) continue;
+            }
+
+            matches.Add(reg);
+        }
+
+        return matches;
+    }
 
     private string EnviarRawCompanytec(string body)
     {

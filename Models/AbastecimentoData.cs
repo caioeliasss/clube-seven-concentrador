@@ -136,6 +136,17 @@ public class PrecoPorLitro
     public string? Raw { get; set; }
 }
 
+public class LerIncrementarResponse
+{
+    public bool Vazio { get; set; }
+    public string Raw { get; set; } = "";
+    public string Bico { get; set; } = "";
+    public decimal Volume { get; set; }
+    public decimal ValorTotal { get; set; }
+    public decimal ValorPorLitro { get; set; }
+    public DateTime? Ts { get; set; }
+}
+
 public class WebhookPayload
 {
     public string IdConcentrador { get; set; } = "";

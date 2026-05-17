@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.AspNetCore.Mvc;
 using SevenConcentradorBridge.Models;
 using SevenConcentradorBridge.Services;
@@ -58,7 +59,10 @@ public class ConcentradorController : ControllerBase
     }
 
     [HttpGet("visualizacao/stream")]
-    public async Task VisualizacaoStream([FromQuery] int? intervaloMs, CancellationToken ct)
+    public async Task VisualizacaoStream(
+        [FromQuery] int? intervaloMs,
+        [FromQuery] string? bico,
+        CancellationToken ct)
     {
         Response.Headers.Append("Content-Type", "text/event-stream");
         Response.Headers.Append("Cache-Control", "no-cache");
@@ -73,6 +77,19 @@ public class ConcentradorController : ControllerBase
         {
             PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
         };
+
+        string? bicoFiltro = null;
+        if (!string.IsNullOrWhiteSpace(bico))
+        {
+            if (int.TryParse(bico, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) && n >= 1 && n <= 32)
+                bicoFiltro = n.ToString("D2");
+            else
+            {
+                Response.StatusCode = 400;
+                await Response.WriteAsync($"event: erro\ndata: {{\"erro\":\"bico inválido (use 1-32)\"}}\n\n", ct);
+                return;
+            }
+        }
 
         try
         {
@@ -92,9 +109,18 @@ public class ConcentradorController : ControllerBase
                     continue;
                 }
 
-                var payload = System.Text.Json.JsonSerializer.Serialize(
-                    new { dados = resp.Raw, bicos = resp.Bicos, ts = DateTime.UtcNow },
-                    jsonOpts);
+                object body;
+                if (bicoFiltro != null)
+                {
+                    var match = resp.Bicos.FirstOrDefault(b => b.Bico == bicoFiltro);
+                    body = new { dados = resp.Raw, bico = match, ts = DateTime.UtcNow };
+                }
+                else
+                {
+                    body = new { dados = resp.Raw, bicos = resp.Bicos, ts = DateTime.UtcNow };
+                }
+
+                var payload = System.Text.Json.JsonSerializer.Serialize(body, jsonOpts);
 
                 await Response.WriteAsync($"event: visualizacao\ndata: {payload}\n\n", ct);
                 await Response.Body.FlushAsync(ct);
@@ -243,6 +269,33 @@ public class ConcentradorController : ControllerBase
         }
     }
 
+    [HttpGet("abastecimento/buscar")]
+    public IActionResult BuscarAbastecimento(
+        [FromQuery] string? bico,
+        [FromQuery] decimal? litros,
+        [FromQuery] decimal toleranciaLitros = 0.5m,
+        [FromQuery] DateTime? data = null,
+        [FromQuery] int toleranciaMin = 5,
+        [FromQuery] int maxScan = 200)
+    {
+        if (string.IsNullOrWhiteSpace(bico))
+            return BadRequest(new { erro = "bico obrigatório" });
+
+        try
+        {
+            var matches = _concentrador.BuscarAbastecimento(
+                bico, litros, toleranciaLitros, data, toleranciaMin, maxScan);
+            return Ok(new
+            {
+                total = matches.Count,
+                criterios = new { bico, litros, toleranciaLitros, data, toleranciaMin, maxScan },
+                matches
+            });
+        }
+        catch (ArgumentException ex) { return BadRequest(new { erro = ex.Message }); }
+        catch (InvalidOperationException ex) { return StatusCode(503, new { erro = ex.Message }); }
+    }
+
     [HttpGet("registro/{posicao:int}")]
     public IActionResult Registro(int posicao)
     {
@@ -254,6 +307,31 @@ public class ConcentradorController : ControllerBase
         catch (ArgumentOutOfRangeException ex)
         {
             return BadRequest(new { erro = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return StatusCode(503, new { erro = ex.Message });
+        }
+    }
+
+    [HttpPost("ler-incrementar")]
+    public IActionResult LerIncrementar()
+    {
+        try
+        {
+            var resp = _concentrador.LerEIncrementar();
+            if (resp.Vazio)
+                return NotFound(new { erro = "Nenhum abastecimento na memória", raw = resp.Raw });
+
+            return Ok(new
+            {
+                bico = resp.Bico,
+                volume = resp.Volume,
+                valorTotal = resp.ValorTotal,
+                valorPorLitro = resp.ValorPorLitro,
+                ts = resp.Ts,
+                raw = resp.Raw
+            });
         }
         catch (InvalidOperationException ex)
         {
