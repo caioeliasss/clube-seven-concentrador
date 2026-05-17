@@ -46,15 +46,15 @@ public class ConcentradorController : ControllerBase
     [HttpGet("abastecimento")]
     public IActionResult LerAbastecimento()
     {
-        var dados = _concentrador.LerAbastecimentoPAF();
+        var dados = _concentrador.LerAbastecimento();
         return Ok(new { dados });
     }
 
     [HttpGet("visualizacao")]
     public IActionResult Visualizacao()
     {
-        var dados = _concentrador.LerVisualizacao();
-        return Ok(new { dados });
+        var resp = _concentrador.LerVisualizacaoParsed();
+        return Ok(new { dados = resp.Raw, bicos = resp.Bicos });
     }
 
     [HttpPost("liberar")]
@@ -82,6 +82,25 @@ public class ConcentradorController : ControllerBase
         return sucesso
             ? Ok(new { sucesso = true })
             : StatusCode(500, new { erro = "Falha ao autorizar bico" });
+    }
+
+    [HttpPost("preco")]
+    public IActionResult AlterarPreco([FromBody] SetPrecoRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request?.Bico) || string.IsNullOrWhiteSpace(request?.Preco))
+            return BadRequest(new { erro = "Bico e preço obrigatórios" });
+
+        try
+        {
+            var sucesso = _concentrador.AlterarPreco(request.Bico, request.Preco);
+            return sucesso
+                ? Ok(new { sucesso = true, bico = request.Bico, preco = request.Preco })
+                : StatusCode(500, new { erro = "Falha ao alterar preço" });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return StatusCode(503, new { erro = ex.Message });
+        }
     }
 
     [HttpGet("precos")]
@@ -155,6 +174,38 @@ public class ConcentradorController : ControllerBase
         {
             var (comando, resposta) = _concentrador.EnviarNativo(request.Comando);
             return Ok(new { comando, resposta });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return StatusCode(503, new { erro = ex.Message });
+        }
+    }
+
+    [HttpGet("ponteiros")]
+    public IActionResult Ponteiros()
+    {
+        try
+        {
+            var p = _concentrador.LerPonteiros();
+            return Ok(p);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return StatusCode(503, new { erro = ex.Message });
+        }
+    }
+
+    [HttpGet("registro/{posicao:int}")]
+    public IActionResult Registro(int posicao)
+    {
+        try
+        {
+            var reg = _concentrador.LerRegistro(posicao);
+            return Ok(reg);
+        }
+        catch (ArgumentOutOfRangeException ex)
+        {
+            return BadRequest(new { erro = ex.Message });
         }
         catch (InvalidOperationException ex)
         {

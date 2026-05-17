@@ -118,7 +118,7 @@ public static class CompanytecDll
 
     // === Preço por litro nível 0 ===
     // Assinatura nativa C-friendly (pchar/integer), sem shim.
-    // Retorno: preço × 100 (ex: 590 = R$5,90). Valor < 0 indica falha.
+    // Retorno: preço × 1000 (3 decimais — ex: 5900 = R$5,900). Valor < 0 indica falha.
 
     [DllImport(DllName, EntryPoint = "ReadPriceLiterLevel0",
         CallingConvention = CallingConvention.StdCall, CharSet = CharSet.Ansi)]

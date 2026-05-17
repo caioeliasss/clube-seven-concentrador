@@ -42,6 +42,7 @@ public static class DllWorker
         "C_CloseSerial"     => CompanytecDll.C_CloseSerial(),
         "C_CloseSocket"     => CompanytecDll.C_CloseSocket(),
         "C_PresetPump"      => CompanytecDll.C_PresetPump(args[0].GetString()!, args[1].GetString()!),
+        "C_SetPrice"        => CompanytecDll.C_SetPrice(args[0].GetString()!, args[1].GetString()!),
         "C_readState"       => CompanytecDll.PtrToString(CompanytecDll.C_readState()),
         "C_GetSale"         => CompanytecDll.PtrToString(CompanytecDll.C_GetSale()),
         "C_GetSalePAF"      => CompanytecDll.PtrToString(CompanytecDll.C_GetSalePAF()),

@@ -37,10 +37,10 @@ Processo chamador **precisa ser x86**. Não roda em processo x64.
 
 `Integer` (4 bytes, signed).
 
-- `>= 0` — preço × 100. Exemplo: `590` = R$ 5,90; `1234` = R$ 12,34.
+- `>= 0` — preço × 1000 (3 decimais). Exemplo: `5900` = R$ 5,900; `12345` = R$ 12,345.
 - `< 0` — falha (sem preço, bico inexistente, ou erro de comunicação).
 
-Conversão: `precoReais = raw / 100m` (use decimal pra evitar float drift).
+Conversão: `precoReais = raw / 1000m` (use decimal pra evitar float drift).
 
 ## Pré-condições
 
@@ -85,8 +85,8 @@ if (raw < 0)
 }
 else
 {
-    decimal preco = raw / 100m;
-    Console.WriteLine(preco.ToString("F2", CultureInfo.InvariantCulture)); // "5.90"
+    decimal preco = raw / 1000m;
+    Console.WriteLine(preco.ToString("F3", CultureInfo.InvariantCulture)); // "5.900"
 }
 ```
 

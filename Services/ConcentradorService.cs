@@ -94,6 +94,18 @@ public class ConcentradorService : IDisposable
         return result == 1;
     });
 
+    // C_SetPrice (Manual §4.6.5): preço 4 dígitos × 1000 (3 decimais — ex. "5990" = R$5,990).
+    // Aplicado no display somente no próximo abastecimento.
+    public bool AlterarPreco(string bico, string preco) => Executar(() =>
+    {
+        if (!_connected) throw new InvalidOperationException("Não conectado ao concentrador");
+        string bicoPad = bico.PadLeft(2, '0');
+        string precoPad = preco.PadLeft(4, '0');
+        var result = _dll.C_SetPrice(bicoPad, precoPad);
+        _logger.LogInformation("SetPrice bico {Bico} preco {Preco}: {Result}", bicoPad, precoPad, result);
+        return result == 1;
+    });
+
     public string LerStatus() => Executar(() =>
     {
         if (!_connected) throw new InvalidOperationException("Não conectado ao concentrador");
@@ -141,6 +153,39 @@ public class ConcentradorService : IDisposable
         if (!_connected) throw new InvalidOperationException("Não conectado ao concentrador");
         return _dll.C_Visualize();
     });
+
+    // C_Visualize retorna "(BBPPPPPP...)" — N blocos de 8 chars (bico 2 + volume 6).
+    // Manual §4.3.1: 48 posições, bico "00" = slot vazio. Volume é raw × 100 (2 decimais).
+    public VisualizacaoResponse LerVisualizacaoParsed()
+    {
+        string raw = LerVisualizacao();
+        var resp = new VisualizacaoResponse { Raw = raw };
+
+        if (string.IsNullOrEmpty(raw)) return resp;
+
+        string payload = raw.Trim();
+        if (payload.StartsWith("(")) payload = payload[1..];
+        if (payload.EndsWith(")")) payload = payload[..^1];
+
+        for (int i = 0; i + 8 <= payload.Length; i += 8)
+        {
+            string bico = payload.Substring(i, 2);
+            if (bico == "00") continue;
+
+            string volRaw = payload.Substring(i + 2, 6);
+            if (!int.TryParse(volRaw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int volInt))
+                continue;
+
+            resp.Bicos.Add(new VisualizacaoBico
+            {
+                Bico = bico,
+                VolumeRaw = volRaw,
+                VolumeLitros = volInt / 100m,
+            });
+        }
+
+        return resp;
+    }
 
     public List<PrecoCombustivel> LerPrecosTodos() => Executar(() =>
     {
@@ -237,7 +282,7 @@ public class ConcentradorService : IDisposable
         {
             Bico = bico,
             Sucesso = true,
-            Nivel0 = (raw / 100m).ToString("F2", CultureInfo.InvariantCulture),
+            Nivel0 = (raw / 1000m).ToString("F3", CultureInfo.InvariantCulture),
             Raw = raw.ToString(CultureInfo.InvariantCulture),
         };
     });
@@ -258,7 +303,7 @@ public class ConcentradorService : IDisposable
             {
                 Bico = bicoPad,
                 Sucesso = true,
-                Nivel0 = (raw / 100m).ToString("F2", CultureInfo.InvariantCulture),
+                Nivel0 = (raw / 1000m).ToString("F3", CultureInfo.InvariantCulture),
                 Raw = raw.ToString(CultureInfo.InvariantCulture),
             });
         }
@@ -284,6 +329,107 @@ public class ConcentradorService : IDisposable
         _logger.LogDebug("RX (raw): {Resp}", resp);
         return (comando, resp);
     });
+
+    // §3.1.10: (&T99PKK) → (TP99XXXXYYYYKK) — ler ponteiros sem incrementar.
+    public PonteirosResponse LerPonteiros() => Executar(() =>
+    {
+        if (!_connected) throw new InvalidOperationException("Não conectado ao concentrador");
+        string raw = EnviarRawCompanytec("&T99P");
+        return ParsePonteiros(raw);
+    });
+
+    // §3.1.9: (&LRXXXXKK) → registro PAF1 da posição. NÃO incrementa ponteiro global.
+    public AbastecimentoRegistro LerRegistro(int posicao) => Executar(() =>
+    {
+        if (!_connected) throw new InvalidOperationException("Não conectado ao concentrador");
+        if (posicao < 0 || posicao > 9999)
+            throw new ArgumentOutOfRangeException(nameof(posicao), "Posição deve estar entre 0-9999");
+        string body = $"&LR{posicao:D4}";
+        string raw = EnviarRawCompanytec(body);
+        return ParseRegistro(raw, posicao);
+    });
+
+    private string EnviarRawCompanytec(string body)
+    {
+        int sum = 0;
+        foreach (char c in body) sum += c;
+        string checksum = (sum & 0xFF).ToString("X2");
+        string comando = $"({body}{checksum})";
+        _logger.LogDebug("TX raw: {Cmd}", comando);
+        string resp = _dll.SendReceiveText(comando);
+        _logger.LogDebug("RX raw: {Resp}", resp);
+        return resp;
+    }
+
+    private static string StripParens(string s)
+    {
+        if (string.IsNullOrEmpty(s)) return "";
+        var t = s.Trim();
+        if (t.StartsWith("(")) t = t[1..];
+        if (t.EndsWith(")")) t = t[..^1];
+        return t;
+    }
+
+    private static PonteirosResponse ParsePonteiros(string raw)
+    {
+        var resp = new PonteirosResponse { Raw = raw };
+        string payload = StripParens(raw);
+        if (payload.Length < 12 || !payload.StartsWith("TP99")) return resp;
+
+        if (int.TryParse(payload.Substring(4, 4), NumberStyles.Integer, CultureInfo.InvariantCulture, out int w))
+            resp.Write = w;
+        if (int.TryParse(payload.Substring(8, 4), NumberStyles.Integer, CultureInfo.InvariantCulture, out int r))
+            resp.Read = r;
+
+        // Fila circular — assume capacidade máx 10000 posições (ajustar se concentrador diferir).
+        resp.Pendentes = resp.Write >= resp.Read
+            ? resp.Write - resp.Read
+            : (10000 + resp.Write - resp.Read);
+        resp.Valido = true;
+        return resp;
+    }
+
+    private static AbastecimentoRegistro ParseRegistro(string raw, int posicao)
+    {
+        var reg = new AbastecimentoRegistro { Raw = raw, PosicaoConsultada = posicao };
+        string payload = StripParens(raw);
+
+        // Posição vazia: protocolo retorna string com FFFFF...
+        if (string.IsNullOrEmpty(payload) || payload.StartsWith("FFFFFF"))
+        {
+            reg.Vazio = true;
+            return reg;
+        }
+
+        // CBC04/05/06: TTTTTTLLLLLLPPPPVVCCCCBBDDHHMMNNRRRREEEEEEEEEEFFIIIIIIIIIIIIIIIINNNNSSKK
+        if (payload.Length < 50) return reg;
+
+        reg.TotalRaw = payload.Substring(0, 6);
+        reg.LitrosRaw = payload.Substring(6, 6);
+        reg.PrecoUnitarioRaw = payload.Substring(12, 4);
+        reg.CodigoVirgula = payload.Substring(16, 2);
+        reg.Bico = payload.Substring(22, 2);
+        reg.Dia = payload.Substring(24, 2);
+        reg.Hora = payload.Substring(26, 2);
+        reg.Minuto = payload.Substring(28, 2);
+        reg.Mes = payload.Substring(30, 2);
+
+        if (int.TryParse(payload.Substring(32, 4), NumberStyles.Integer, CultureInfo.InvariantCulture, out int regNum))
+            reg.Registro = regNum;
+
+        reg.TotalizadorFinalRaw = payload.Substring(36, 10);
+        if (payload.Length >= 64)
+            reg.Identificador = payload.Substring(48, 16);
+
+        // Conversão depende do código de vírgula (protocolo §3.7). Default: total /100 (R$ 2 dec), litros /1000 (3 dec).
+        if (decimal.TryParse(reg.TotalRaw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var t))
+            reg.TotalReais = t / 100m;
+        if (decimal.TryParse(reg.LitrosRaw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var l))
+            reg.Litros = l / 1000m;
+
+        reg.Vazio = reg.TotalReais == 0 && reg.Litros == 0;
+        return reg;
+    }
 
     // Envia comando nativo no formato Companytec (ex. "(&T04U33)" — protocolo 3.5.4).
     // Usa export SendReceiveText (dllcompanytec.pas:346):

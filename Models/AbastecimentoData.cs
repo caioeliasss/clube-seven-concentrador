@@ -48,6 +48,49 @@ public class StatusBico
     public string Status { get; set; } = "";
 }
 
+public class VisualizacaoBico
+{
+    public string Bico { get; set; } = "";
+    public string VolumeRaw { get; set; } = "";
+    public decimal VolumeLitros { get; set; }
+}
+
+public class VisualizacaoResponse
+{
+    public string Raw { get; set; } = "";
+    public List<VisualizacaoBico> Bicos { get; set; } = new();
+}
+
+public class PonteirosResponse
+{
+    public string Raw { get; set; } = "";
+    public int Write { get; set; }
+    public int Read { get; set; }
+    public int Pendentes { get; set; }
+    public bool Valido { get; set; }
+}
+
+public class AbastecimentoRegistro
+{
+    public int PosicaoConsultada { get; set; }
+    public string Raw { get; set; } = "";
+    public bool Vazio { get; set; }
+    public string? TotalRaw { get; set; }
+    public decimal? TotalReais { get; set; }
+    public string? LitrosRaw { get; set; }
+    public decimal? Litros { get; set; }
+    public string? PrecoUnitarioRaw { get; set; }
+    public string? CodigoVirgula { get; set; }
+    public string? Bico { get; set; }
+    public string? Dia { get; set; }
+    public string? Hora { get; set; }
+    public string? Minuto { get; set; }
+    public string? Mes { get; set; }
+    public int? Registro { get; set; }
+    public string? TotalizadorFinalRaw { get; set; }
+    public string? Identificador { get; set; }
+}
+
 public class PresetRequest
 {
     public string Bico { get; set; } = "";
@@ -62,6 +105,12 @@ public class BicoRequest
 public class NativeCommandRequest
 {
     public string Comando { get; set; } = "";
+}
+
+public class SetPrecoRequest
+{
+    public string Bico { get; set; } = "";
+    public string Preco { get; set; } = "";
 }
 
 

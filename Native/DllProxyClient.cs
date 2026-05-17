@@ -101,6 +101,7 @@ public class DllProxyClient : IDisposable
     public int C_CloseSerial()                             => SendInt("C_CloseSerial");
     public int C_CloseSocket()                             => SendInt("C_CloseSocket");
     public int C_PresetPump(string bico, string valor)     => SendInt("C_PresetPump", bico, valor);
+    public int C_SetPrice(string bico, string preco)       => SendInt("C_SetPrice", bico, preco);
     public string C_readState()                            => SendStr("C_readState");
     public string C_GetSale()                              => SendStr("C_GetSale");
     public string C_GetSalePAF()                           => SendStr("C_GetSalePAF");
