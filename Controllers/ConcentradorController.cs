@@ -30,11 +30,7 @@ public class ConcentradorController : ControllerBase
         if (!sucesso)
             return StatusCode(500, new { erro = "Falha ao presetar bomba" });
 
-        // Gerar ID único para rastrear essa operação
-        var idConcentrador = Guid.NewGuid().ToString("N")[..12];
-        _polling.MonitorarBico(request.Bico, idConcentrador);
-
-        return Ok(new { sucesso = true, idConcentrador, bico = request.Bico });
+        return Ok(new { sucesso = true, bico = request.Bico });
     }
 
     [HttpGet("status")]

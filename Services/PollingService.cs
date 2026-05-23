@@ -1,7 +1,6 @@
-using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
-using SevenConcentradorBridge.Models;
+using SevenConcentradorBridge.Services;
 
 namespace SevenConcentradorBridge.Services;
 
@@ -11,9 +10,6 @@ public class PollingService : BackgroundService
     private readonly ILogger<PollingService> _logger;
     private readonly IConfiguration _config;
     private readonly HttpClient _httpClient;
-
-    // Rastreia bicos que foram presetados e precisam ser monitorados
-    private readonly Dictionary<string, string> _bicosMonitorados = new(); // bico -> idConcentrador
 
     public PollingService(
         ConcentradorService concentrador,
@@ -27,20 +23,10 @@ public class PollingService : BackgroundService
         _httpClient = httpClientFactory.CreateClient("Backend");
     }
 
-    public void MonitorarBico(string bico, string idConcentrador)
-    {
-        lock (_bicosMonitorados)
-        {
-            _bicosMonitorados[bico] = idConcentrador;
-            _logger.LogInformation("Monitorando bico {Bico} com id {Id}", bico, idConcentrador);
-        }
-    }
-
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var intervalo = int.Parse(_config["Polling:IntervaloMs"] ?? "2000");
+        var intervalo = int.Parse(_config["Polling:IntervaloMs"] ?? "500");
 
-        // Conectar ao concentrador na inicialização
         while (!stoppingToken.IsCancellationRequested)
         {
             try
@@ -61,11 +47,11 @@ public class PollingService : BackgroundService
         {
             try
             {
-                await VerificarAbastecimentosFinalizados();
+                await VerificarAbastecimento();
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Erro no polling do concentrador");
+                _logger.LogError(ex, "Erro no polling");
             }
 
             await Task.Delay(intervalo, stoppingToken);
@@ -74,102 +60,57 @@ public class PollingService : BackgroundService
         _concentrador.Desconectar();
     }
 
-    private async Task VerificarAbastecimentosFinalizados()
+    private async Task VerificarAbastecimento()
     {
-        List<string> bicosParaRemover;
-        lock (_bicosMonitorados)
-        {
-            if (_bicosMonitorados.Count == 0) return;
-            bicosParaRemover = new List<string>();
-        }
+        // LerEIncrementar: C_GetSale + C_NextSale atomicamente na thread DLL.
+        // Retorna Vazio=true quando não há abastecimento pendente.
+        var resp = _concentrador.LerEIncrementar();
+        if (resp.Vazio) return;
 
-        // Ler abastecimento finalizado da memória do concentrador
-        var dados = _concentrador.LerAbastecimento();
-        if (string.IsNullOrEmpty(dados)) return;
+        _logger.LogInformation(
+            "Abastecimento: bico={Bico} total={Total} litros={Vol} raw={Raw}",
+            resp.Bico, resp.ValorTotal, resp.Volume, resp.Raw);
 
-        // Parsear dados do protocolo Companytec
-        // Formato: canal(2) + total_dinheiro + total_litros + PU + tempo + data + hora + ...
-        var canal = dados.Length >= 2 ? dados[..2] : "";
-
-        lock (_bicosMonitorados)
-        {
-            if (!_bicosMonitorados.ContainsKey(canal)) return;
-        }
-
-        // Abastecimento finalizado neste bico — enviar webhook
-        var payload = ParseAbastecimento(dados, canal);
-
-        lock (_bicosMonitorados)
-        {
-            if (_bicosMonitorados.TryGetValue(canal, out var id))
-            {
-                payload.IdConcentrador = id;
-                _bicosMonitorados.Remove(canal);
-            }
-        }
-
-        _concentrador.IncrementarPonteiro();
-        await EnviarWebhook(payload);
+        await EnviarParaBackend(resp.Raw);
     }
 
-    private WebhookPayload ParseAbastecimento(string dados, string canal)
+    private async Task EnviarParaBackend(string respostaRaw)
     {
-        // Parse básico do protocolo — ajustar conforme formato real do concentrador
-        var payload = new WebhookPayload
+        var apiUrl = (_config["API_URL"] ?? "").TrimEnd('/');
+        var token = _config["TOKEN"] ?? "";
+
+        if (string.IsNullOrEmpty(apiUrl))
         {
-            Bico = canal,
-            Status = "aguardando_pagamento"
+            _logger.LogWarning("API_URL não configurada — abastecimento não enviado");
+            return;
+        }
+
+        var url = $"{apiUrl}/api/concentrador";
+        var body = JsonSerializer.Serialize(new
+        {
+            comandoRaw = "C_GetSale",
+            respostaRaw,
+        });
+
+        var request = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = new StringContent(body, Encoding.UTF8, "application/json"),
         };
 
-        try
-        {
-            // O formato exato depende do protocolo Companytec
-            // Tipicamente: bico(2) + valor(10) + litros(10) + PU(6) + tempo(8) + data(10) + hora(5)
-            if (dados.Length >= 22)
-            {
-                if (decimal.TryParse(dados[2..12].Trim(), out var dinheiro))
-                    payload.TotalDinheiro = dinheiro / 100m;
-                if (double.TryParse(dados[12..22].Trim(), out var litros))
-                    payload.TotalLitros = litros / 1000.0;
-                if (decimal.TryParse(dados[22..28].Trim(), out var pu))
-                    payload.PrecoUnitario = pu / 1000m;
-            }
-        }
-        catch (Exception)
-        {
-            // Se falha o parse, envia com dados zerados — backend trata
-        }
-
-        return payload;
-    }
-
-    private async Task EnviarWebhook(WebhookPayload payload)
-    {
-        var backendUrl = _config["Backend:WebhookUrl"]
-            ?? "https://seu-backend.com/api/abastecimento/webhook-concentrador";
-        var apiKey = _config["Backend:ApiKey"] ?? "";
+        if (!string.IsNullOrEmpty(token))
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
         try
         {
-            var json = JsonSerializer.Serialize(payload);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
-
-            var request = new HttpRequestMessage(HttpMethod.Post, backendUrl)
-            {
-                Content = content
-            };
-            if (!string.IsNullOrEmpty(apiKey))
-                request.Headers.Add("X-Api-Key", apiKey);
-
             var response = await _httpClient.SendAsync(request);
             if (response.IsSuccessStatusCode)
-                _logger.LogInformation("Webhook enviado: bico {Bico}", payload.Bico);
+                _logger.LogInformation("Abastecimento enviado ao backend");
             else
-                _logger.LogError("Webhook falhou: {Status}", response.StatusCode);
+                _logger.LogError("Backend retornou {Status} para abastecimento — URL: {Url}", response.StatusCode, url);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Erro ao enviar webhook para o backend");
+            _logger.LogError(ex, "Falha ao enviar abastecimento para {Url}", url);
         }
     }
 }

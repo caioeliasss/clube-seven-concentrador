@@ -7,6 +7,27 @@ if (args.Contains("--worker"))
     return;
 }
 
+// Load .env.dev or .env.prod based on ASPNETCORE_ENVIRONMENT before builder
+var aspnetEnv = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production";
+var envFile = aspnetEnv.Equals("Development", StringComparison.OrdinalIgnoreCase) ? ".env.development" : ".env.production";
+foreach (var envPath in new[]
+{
+    Path.Combine(AppContext.BaseDirectory, envFile),
+    Path.Combine(Directory.GetCurrentDirectory(), envFile),
+})
+{
+    if (!File.Exists(envPath)) continue;
+    foreach (var line in File.ReadAllLines(envPath))
+    {
+        var t = line.Trim();
+        if (string.IsNullOrEmpty(t) || t.StartsWith('#')) continue;
+        var eq = t.IndexOf('=');
+        if (eq < 0) continue;
+        Environment.SetEnvironmentVariable(t[..eq].Trim(), t[(eq + 1)..].Trim());
+    }
+    break;
+}
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();

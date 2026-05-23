@@ -6,5 +6,6 @@ echo Starting dev server on http://localhost:5100 ...
 echo Press Ctrl+C to stop.
 echo.
 
+set ASPNETCORE_ENVIRONMENT=Development
 dotnet run --project SevenConcentradorBridge.csproj -r win-x86 --self-contained false --urls "http://localhost:5100"
 pause
