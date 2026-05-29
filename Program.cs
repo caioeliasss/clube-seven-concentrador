@@ -37,6 +37,7 @@ builder.Services.AddHttpClient("Backend");
 builder.Services.AddSingleton<ConcentradorService>();
 builder.Services.AddSingleton<PollingService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<PollingService>());
+builder.Services.AddHostedService<StatusPollingService>();
 
 var app = builder.Build();
 
