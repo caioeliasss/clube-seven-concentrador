@@ -8,7 +8,9 @@
   </PropertyGroup>
 
   <!-- Publish-only settings: self-contained x86 single-file exe -->
+  <!-- WinExe = sem janela de console no exe publicado (roda silencioso/oculto). Dev mantém console. -->
   <PropertyGroup Condition="'$(PublishDir)' != ''">
+    <OutputType>WinExe</OutputType>
     <PlatformTarget>x86</PlatformTarget>
     <RuntimeIdentifier>win-x86</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
