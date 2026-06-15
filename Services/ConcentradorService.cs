@@ -11,6 +11,14 @@ public class ConcentradorService : IDisposable
     private readonly IConfiguration _config;
     private readonly DllProxyClient _dll;
     private bool _connected;
+    private bool _desejaConectado = true;
+
+    // Estado real da conexão com o concentrador (flag interno do último Conectar/Desconectar).
+    public bool IsConnected => _connected;
+
+    // Estado desejado: false após Desconectar manual, true após Conectar.
+    // O polling só tenta reconectar automaticamente quando true.
+    public bool DesejaConectado => _desejaConectado;
 
     private readonly BlockingCollection<Action> _fila = new();
     private readonly Thread _thread;
@@ -48,6 +56,7 @@ public class ConcentradorService : IDisposable
 
     public bool Conectar() => Executar(() =>
     {
+        _desejaConectado = true;
         if (_connected) return true;
 
         var tipo = _config["Concentrador:TipoConexao"] ?? "ethernet";
@@ -76,6 +85,7 @@ public class ConcentradorService : IDisposable
 
     public void Desconectar() => Executar(() =>
     {
+        _desejaConectado = false;
         if (!_connected) return;
         var tipo = _config["Concentrador:TipoConexao"] ?? "ethernet";
         if (tipo == "serial")

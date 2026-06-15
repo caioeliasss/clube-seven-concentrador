@@ -11,15 +11,18 @@ public class ConcentradorController : ControllerBase
 {
     private readonly ConcentradorService _concentrador;
     private readonly PollingService _polling;
+    private readonly ConfigService _configService;
     private readonly ILogger<ConcentradorController> _logger;
 
     public ConcentradorController(
         ConcentradorService concentrador,
         PollingService polling,
+        ConfigService configService,
         ILogger<ConcentradorController> logger)
     {
         _concentrador = concentrador;
         _polling = polling;
+        _configService = configService;
         _logger = logger;
     }
 
@@ -338,6 +341,85 @@ public class ConcentradorController : ControllerBase
     [HttpGet("health")]
     public IActionResult Health()
     {
-        return Ok(new { status = "ok", timestamp = DateTime.UtcNow });
+        return Ok(new
+        {
+            status = "ok",
+            conectado = _concentrador.IsConnected,
+            timestamp = DateTime.UtcNow
+        });
+    }
+
+    // ===== Painel: configuração e controle de conexão =====
+
+    [HttpGet("config")]
+    public IActionResult LerConfig()
+    {
+        return Ok(_configService.LerConfig());
+    }
+
+    [HttpPost("config")]
+    public IActionResult SalvarConfig([FromBody] ConfigDto dto)
+    {
+        if (dto == null)
+            return BadRequest(new { erro = "Corpo vazio" });
+
+        try
+        {
+            var requerRestart = _configService.SalvarConfig(dto);
+            return Ok(new { sucesso = true, requerRestart });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Falha ao salvar configuração");
+            return StatusCode(500, new { erro = ex.Message });
+        }
+    }
+
+    [HttpPost("conectar")]
+    public IActionResult Conectar()
+    {
+        var ok = _concentrador.Conectar();
+        return ok
+            ? Ok(new { conectado = true })
+            : StatusCode(503, new { conectado = false, erro = "Falha ao conectar ao concentrador" });
+    }
+
+    [HttpPost("desconectar")]
+    public IActionResult Desconectar()
+    {
+        _concentrador.Desconectar();
+        return Ok(new { conectado = false });
+    }
+
+    [HttpPost("reiniciar")]
+    public IActionResult Reiniciar()
+    {
+        var exe = Environment.ProcessPath;
+        if (string.IsNullOrEmpty(exe))
+            return StatusCode(500, new { erro = "Não foi possível localizar o executável" });
+
+        _logger.LogWarning("Reinício solicitado pelo painel — respawn de {Exe}", exe);
+
+        // Sobe novo processo após um pequeno atraso (para o atual liberar a porta) e encerra este.
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(800);
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = exe,
+                    UseShellExecute = true,
+                    WorkingDirectory = AppContext.BaseDirectory,
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Falha ao respawnar processo");
+            }
+            Environment.Exit(0);
+        });
+
+        return Ok(new { sucesso = true, mensagem = "Reiniciando..." });
     }
 }

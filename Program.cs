@@ -34,12 +34,18 @@ builder.Services.AddControllers();
 builder.Services.AddHttpClient("Backend");
 
 // Registrar serviços
+builder.Services.AddSingleton<ConfigService>();
 builder.Services.AddSingleton<ConcentradorService>();
 builder.Services.AddSingleton<PollingService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<PollingService>());
 builder.Services.AddHostedService<StatusPollingService>();
 
 var app = builder.Build();
+
+// Painel web servido em "/" (wwwroot/index.html). Antes do middleware de auth
+// para a página carregar sem X-Api-Key; as chamadas de API seguem protegidas.
+app.UseDefaultFiles();
+app.UseStaticFiles();
 
 // Middleware de autenticação por API Key
 app.Use(async (context, next) =>

@@ -50,7 +50,8 @@ public class StatusPollingService : BackgroundService
         {
             try
             {
-                await VerificarStatus(stoppingToken);
+                if (_concentrador.IsConnected)
+                    await VerificarStatus(stoppingToken);
             }
             catch (Exception ex)
             {
@@ -87,12 +88,12 @@ public class StatusPollingService : BackgroundService
 
     private async Task EnviarParaBackend(string statusString, CancellationToken ct)
     {
-        var apiUrl = (_config["API_URL"] ?? "").TrimEnd('/');
-        var token = _config["TOKEN"] ?? "";
+        var apiUrl = (_config["Backend:WebhookUrl"] ?? _config["API_URL"] ?? "").TrimEnd('/');
+        var token = _config["Backend:ApiKey"] ?? _config["TOKEN"] ?? "";
 
         if (string.IsNullOrEmpty(apiUrl))
         {
-            _logger.LogWarning("API_URL não configurada — status não enviado");
+            _logger.LogWarning("Backend:WebhookUrl/API_URL não configurada — status não enviado");
             return;
         }
 
