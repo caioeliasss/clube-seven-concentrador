@@ -5,6 +5,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>SevenConcentradorBridge</RootNamespace>
+    <ApplicationIcon>seven-logo.ico</ApplicationIcon>
   </PropertyGroup>
 
   <!-- Publish-only settings: self-contained x86 single-file exe -->
@@ -35,6 +36,10 @@
       <CopyToPublishDirectory>Always</CopyToPublishDirectory>
     </None>
     <None Update="appsettings.json">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Always</CopyToPublishDirectory>
+    </None>
+    <None Update="seven-logo.ico">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
       <CopyToPublishDirectory>Always</CopyToPublishDirectory>
     </None>

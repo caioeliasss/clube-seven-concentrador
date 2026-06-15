@@ -5,7 +5,7 @@
 #define AppName "ClubeSevenBridge"
 #define AppPublisher "Clube Seven"
 #define AppExe "SevenConcentradorBridge.exe"
-#define AppVersion "0.2.1"
+#define AppVersion "0.3.0"
 #define DefaultPort "5100"
 
 [Setup]
@@ -20,6 +20,8 @@ OutputBaseFilename=ClubeSevenBridge-Setup-{#AppVersion}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+SetupIconFile=..\seven-logo.ico
+UninstallDisplayIcon={app}\{#AppExe}
 ; App x86; permitir instalar em Windows 64-bit tambem.
 ArchitecturesAllowed=x86 x64
 PrivilegesRequired=admin
@@ -39,14 +41,16 @@ Source: "..\dist\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ig
 Source: "..\dist\appsettings.json"; DestDir: "{app}"; Flags: onlyifdoesntexist uninsneveruninstall
 
 [INI]
-; Atalho de internet que abre o painel no navegador padrão.
+; Atalho de internet que abre o painel no navegador padrão (com ícone da logo).
 Filename: "{app}\Abrir Painel.url"; Section: "InternetShortcut"; Key: "URL"; String: "http://localhost:{#DefaultPort}/"
+Filename: "{app}\Abrir Painel.url"; Section: "InternetShortcut"; Key: "IconFile"; String: "{app}\seven-logo.ico"
+Filename: "{app}\Abrir Painel.url"; Section: "InternetShortcut"; Key: "IconIndex"; String: "0"
 
 [Icons]
-Name: "{group}\Abrir Painel"; Filename: "{app}\Abrir Painel.url"
+Name: "{group}\Abrir Painel"; Filename: "{app}\Abrir Painel.url"; IconFilename: "{app}\seven-logo.ico"
 Name: "{group}\Iniciar Bridge"; Filename: "{app}\{#AppExe}"
 Name: "{group}\Desinstalar {#AppName}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\Abrir Painel ClubeSeven"; Filename: "{app}\Abrir Painel.url"; Tasks: desktopicon
+Name: "{autodesktop}\Abrir Painel ClubeSeven"; Filename: "{app}\Abrir Painel.url"; IconFilename: "{app}\seven-logo.ico"; Tasks: desktopicon
 
 [Registry]
 ; Autostart no logon do usuário atual.
