@@ -1,8 +1,8 @@
-; Inno Setup script — Seven Concentrador Bridge
+; Inno Setup script — ClubeSevenBridge
 ; Compilar com: build-installer.bat  (chama publicar-instalador.bat + iscc)
 ; Requer Inno Setup 6 (https://jrsoftware.org/isdl.php).
 
-#define AppName "Seven Concentrador Bridge"
+#define AppName "ClubeSevenBridge"
 #define AppPublisher "Clube Seven"
 #define AppExe "SevenConcentradorBridge.exe"
 #define AppVersion "0.1.0"
@@ -13,10 +13,10 @@ AppId={{8C2F1B30-7E5A-4C2E-9B1D-A1B2C3D4E5F6}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher={#AppPublisher}
-DefaultDirName={autopf}\SevenConcentradorBridge
+DefaultDirName={autopf}\ClubeSevenBridge
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
-OutputBaseFilename=SevenConcentradorBridge-Setup-{#AppVersion}
+OutputBaseFilename=ClubeSevenBridge-Setup-{#AppVersion}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -46,18 +46,18 @@ Filename: "{app}\Abrir Painel.url"; Section: "InternetShortcut"; Key: "URL"; Str
 Name: "{group}\Abrir Painel"; Filename: "{app}\Abrir Painel.url"
 Name: "{group}\Iniciar Bridge"; Filename: "{app}\{#AppExe}"
 Name: "{group}\Desinstalar {#AppName}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\Abrir Painel Seven"; Filename: "{app}\Abrir Painel.url"; Tasks: desktopicon
+Name: "{autodesktop}\Abrir Painel ClubeSeven"; Filename: "{app}\Abrir Painel.url"; Tasks: desktopicon
 
 [Registry]
 ; Autostart no logon do usuário atual.
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; \
-  ValueName: "SevenConcentradorBridge"; ValueData: """{app}\{#AppExe}"""; \
+  ValueName: "ClubeSevenBridge"; ValueData: """{app}\{#AppExe}"""; \
   Flags: uninsdeletevalue; Tasks: autostart
 
 [Run]
 ; Regra de firewall (opcional).
 Filename: "{sys}\netsh.exe"; \
-  Parameters: "advfirewall firewall add rule name=""SevenConcentradorBridge"" dir=in action=allow protocol=TCP localport={#DefaultPort}"; \
+  Parameters: "advfirewall firewall add rule name=""ClubeSevenBridge"" dir=in action=allow protocol=TCP localport={#DefaultPort}"; \
   Flags: runhidden; Tasks: firewall
 ; Inicia agora e oferece abrir o painel.
 Filename: "{app}\{#AppExe}"; Description: "Iniciar o bridge agora"; Flags: nowait postinstall skipifsilent
@@ -65,7 +65,7 @@ Filename: "{app}\Abrir Painel.url"; Description: "Abrir o painel no navegador"; 
 
 [UninstallRun]
 Filename: "{sys}\netsh.exe"; \
-  Parameters: "advfirewall firewall delete rule name=""SevenConcentradorBridge"""; \
+  Parameters: "advfirewall firewall delete rule name=""ClubeSevenBridge"""; \
   Flags: runhidden; RunOnceId: "DelFwRule"
 
 [UninstallDelete]
