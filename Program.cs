@@ -77,4 +77,9 @@ app.MapControllers();
 var porta = app.Configuration["Bridge:Porta"] ?? "5100";
 app.Urls.Add($"http://0.0.0.0:{porta}");
 
-app.Run();
+// Exe publicado (WinExe, sem console): roda com ícone na bandeja perto do relógio.
+// Dev (console presente): mantém comportamento normal com logs e Ctrl+C.
+if (TrayIcon.ConsolePresent)
+    app.Run();
+else
+    TrayIcon.Run(app, porta);
