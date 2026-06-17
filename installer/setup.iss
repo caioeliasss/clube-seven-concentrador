@@ -5,7 +5,7 @@
 #define AppName "ClubeSevenBridge"
 #define AppPublisher "Clube Seven"
 #define AppExe "SevenConcentradorBridge.exe"
-#define AppVersion "0.4.0"
+#define AppVersion "0.4.1"
 #define DefaultPort "5100"
 
 [Setup]

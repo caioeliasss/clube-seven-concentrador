@@ -62,13 +62,15 @@ public class ConfigService
         var portaAntiga = Get(root, "Bridge", "Porta");
 
         Set(root, "Bridge", "Porta", dto.BridgePorta);
-        Set(root, "Auth", "ApiKey", dto.AuthApiKey);
+        // Segredos: ignora valor vazio para não apagar a chave existente quando o painel
+        // envia o campo mascarado (GET sem auth devolve null nesses dois).
+        Set(root, "Auth", "ApiKey", NaoVazio(dto.AuthApiKey));
         Set(root, "Concentrador", "TipoConexao", dto.ConcentradorTipoConexao);
         Set(root, "Concentrador", "Ip", dto.ConcentradorIp);
         Set(root, "Concentrador", "Porta", dto.ConcentradorPorta);
         Set(root, "Concentrador", "PortaSerial", dto.ConcentradorPortaSerial);
         Set(root, "Backend", "WebhookUrl", dto.BackendWebhookUrl);
-        Set(root, "Backend", "ApiKey", dto.BackendApiKey);
+        Set(root, "Backend", "ApiKey", NaoVazio(dto.BackendApiKey));
         Set(root, "Polling", "IntervaloMs", dto.PollingIntervaloMs);
         Set(root, "Polling", "StatusIntervaloMs", dto.PollingStatusIntervaloMs);
 
@@ -78,6 +80,9 @@ public class ConfigService
 
         return !string.Equals(portaAntiga, dto.BridgePorta, StringComparison.Ordinal);
     }
+
+    // Trata vazio/whitespace como "não informado" (vira null → Set não grava).
+    private static string? NaoVazio(string? v) => string.IsNullOrWhiteSpace(v) ? null : v;
 
     private JsonObject LerRoot()
     {

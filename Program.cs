@@ -50,8 +50,14 @@ app.UseStaticFiles();
 // Middleware de autenticação por API Key
 app.Use(async (context, next) =>
 {
-    // Permitir health check sem auth
-    if (context.Request.Path.StartsWithSegments("/api/concentrador/health"))
+    // Health check e leitura de config (GET) liberados sem auth: o painel precisa
+    // carregar os valores padrão já no primeiro acesso, antes de o operador colar a
+    // X-Api-Key. Os segredos (Auth/Backend ApiKey) são mascarados na resposta quando
+    // a chave não confere — ver LerConfig — então não vazam na LAN.
+    var p = context.Request.Path;
+    var ehGetConfig = HttpMethods.IsGet(context.Request.Method)
+        && p.StartsWithSegments("/api/concentrador/config");
+    if (p.StartsWithSegments("/api/concentrador/health") || ehGetConfig)
     {
         await next();
         return;

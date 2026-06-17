@@ -12,17 +12,20 @@ public class ConcentradorController : ControllerBase
     private readonly ConcentradorService _concentrador;
     private readonly PollingService _polling;
     private readonly ConfigService _configService;
+    private readonly IConfiguration _config;
     private readonly ILogger<ConcentradorController> _logger;
 
     public ConcentradorController(
         ConcentradorService concentrador,
         PollingService polling,
         ConfigService configService,
+        IConfiguration config,
         ILogger<ConcentradorController> logger)
     {
         _concentrador = concentrador;
         _polling = polling;
         _configService = configService;
+        _config = config;
         _logger = logger;
     }
 
@@ -354,7 +357,21 @@ public class ConcentradorController : ControllerBase
     [HttpGet("config")]
     public IActionResult LerConfig()
     {
-        return Ok(_configService.LerConfig());
+        var cfg = _configService.LerConfig();
+
+        // GET é liberado sem auth para o painel popular os padrões no primeiro acesso.
+        // Sem X-Api-Key válida, mascara os segredos para não vazarem na LAN; o operador
+        // só vê as chaves depois de colar a sua e recarregar.
+        var apiKey = _config["Auth:ApiKey"];
+        var requestKey = Request.Headers["X-Api-Key"].FirstOrDefault();
+        var autenticado = string.IsNullOrEmpty(apiKey) || requestKey == apiKey;
+        if (!autenticado)
+        {
+            cfg.AuthApiKey = null;
+            cfg.BackendApiKey = null;
+        }
+
+        return Ok(cfg);
     }
 
     [HttpPost("config")]
