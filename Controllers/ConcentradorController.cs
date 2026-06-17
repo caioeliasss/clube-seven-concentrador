@@ -12,21 +12,32 @@ public class ConcentradorController : ControllerBase
     private readonly ConcentradorService _concentrador;
     private readonly PollingService _polling;
     private readonly ConfigService _configService;
-    private readonly IConfiguration _config;
+    private readonly BackendAuthService _auth;
     private readonly ILogger<ConcentradorController> _logger;
 
     public ConcentradorController(
         ConcentradorService concentrador,
         PollingService polling,
         ConfigService configService,
-        IConfiguration config,
+        BackendAuthService auth,
         ILogger<ConcentradorController> logger)
     {
         _concentrador = concentrador;
         _polling = polling;
         _configService = configService;
-        _config = config;
+        _auth = auth;
         _logger = logger;
+    }
+
+    // Extrai a key de "Authorization: Bearer <key>" (ou valor cru).
+    private string? KeyDoRequest()
+    {
+        var header = Request.Headers.Authorization.FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(header)) return null;
+        const string prefixo = "Bearer ";
+        return header.StartsWith(prefixo, StringComparison.OrdinalIgnoreCase)
+            ? header[prefixo.Length..].Trim()
+            : header.Trim();
     }
 
     [HttpPost("preset")]
@@ -354,17 +365,24 @@ public class ConcentradorController : ControllerBase
 
     // ===== Painel: configuração e controle de conexão =====
 
+    // Valida a key (Authorization: Bearer) contra o backend. Liberado sem auth no
+    // middleware — é o "login" do painel. Retorna { success: true|false }.
+    [HttpPost("key/check")]
+    public async Task<IActionResult> CheckKey()
+    {
+        var valido = await _auth.ValidarKeyAsync(KeyDoRequest(), HttpContext.RequestAborted);
+        return Ok(new { success = valido });
+    }
+
     [HttpGet("config")]
-    public IActionResult LerConfig()
+    public async Task<IActionResult> LerConfig()
     {
         var cfg = _configService.LerConfig();
 
         // GET é liberado sem auth para o painel popular os padrões no primeiro acesso.
-        // Sem X-Api-Key válida, mascara os segredos para não vazarem na LAN; o operador
-        // só vê as chaves depois de colar a sua e recarregar.
-        var apiKey = _config["Auth:ApiKey"];
-        var requestKey = Request.Headers["X-Api-Key"].FirstOrDefault();
-        var autenticado = string.IsNullOrEmpty(apiKey) || requestKey == apiKey;
+        // Sem key válida (validada no backend), mascara os segredos para não vazarem na
+        // LAN; o operador só vê as chaves depois de colar a sua e recarregar.
+        var autenticado = await _auth.ValidarKeyAsync(KeyDoRequest(), HttpContext.RequestAborted);
         if (!autenticado)
         {
             cfg.AuthApiKey = null;

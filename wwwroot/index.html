@@ -153,15 +153,32 @@
     // --- API key persistida ---
     const apiKeyInput = $("apiKey");
     apiKeyInput.value = localStorage.getItem("seven_apikey") || "";
-    apiKeyInput.addEventListener("change", () =>
-      localStorage.setItem("seven_apikey", apiKeyInput.value.trim()));
+    apiKeyInput.addEventListener("change", () => {
+      localStorage.setItem("seven_apikey", apiKeyInput.value.trim());
+      verificarKey();
+    });
 
     function headers(json) {
       const h = {};
       if (json) h["Content-Type"] = "application/json";
       const k = apiKeyInput.value.trim();
-      if (k) h["X-Api-Key"] = k;
+      if (k) h["Authorization"] = "Bearer " + k;
       return h;
+    }
+
+    // Valida a key no backend via /key/check; recarrega a config (revela segredos
+    // mascarados) quando a key é aceita.
+    async function verificarKey() {
+      const k = apiKeyInput.value.trim();
+      if (!k) return;
+      try {
+        const r = await fetch(`${API}/key/check`, { method: "POST", headers: headers(false) });
+        const j = await r.json().catch(() => ({}));
+        if (j.success) { toast("API Key válida"); carregar(); }
+        else toast("API Key inválida", false);
+      } catch {
+        toast("Falha ao verificar a key", false);
+      }
     }
 
     function toast(msg, ok = true) {
@@ -228,11 +245,6 @@
         if (r.status === 401) { toast("API Key inválida", false); return; }
         const j = await r.json();
         if (!r.ok) { toast(j.erro || "Falha ao salvar", false); return; }
-        // Se mudou a API key de Auth, atualiza a guardada para não perder acesso.
-        if (dto.authApiKey) {
-          apiKeyInput.value = dto.authApiKey;
-          localStorage.setItem("seven_apikey", dto.authApiKey);
-        }
         toast(j.requerRestart ? "Salvo — reinicie para aplicar a porta" : "Salvo (aplicado a quente)");
       } catch {
         toast("Falha ao salvar", false);
