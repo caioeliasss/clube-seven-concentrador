@@ -35,7 +35,8 @@ builder.Services.AddHttpClient("Backend");
 
 // Registrar serviços
 builder.Services.AddSingleton<ConfigService>();
-builder.Services.AddSingleton<BackendAuthService>();
+builder.Services.AddSingleton<ApiKeyService>();
+builder.Services.AddSingleton<BackendStatusService>();
 builder.Services.AddSingleton<ConcentradorService>();
 builder.Services.AddSingleton<PollingService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<PollingService>());
@@ -49,8 +50,9 @@ app.UseDefaultFiles();
 app.UseStaticFiles();
 
 // Middleware de autenticação: a key vem em Authorization: Bearer <key> e é
-// validada contra o backend (api.clubeseven.com/api/concentrador/api/check),
-// não mais contra o appsettings local.
+// validada localmente contra Backend:ApiKey no appsettings.json (mesma key usada
+// pelo bridge para se autenticar no backend ao enviar webhooks). Sem chamada de
+// rede aqui — trocar Backend:WebhookUrl/ApiKey não derruba o acesso ao painel.
 app.Use(async (context, next) =>
 {
     var p = context.Request.Path;
@@ -59,10 +61,13 @@ app.Use(async (context, next) =>
     //  - health: status do bridge.
     //  - GET config: painel carrega os padrões no primeiro acesso (segredos mascarados).
     //  - key/check: é justamente o endpoint que valida a key (senão seria circular).
+    //  - backend/check: o painel testa a Webhook URL + token DIGITADOS (ainda não salvos)
+    //    contra o backend remoto; exigir auth aqui impediria verificar um token novo.
     var ehGetConfig = HttpMethods.IsGet(context.Request.Method)
         && p.StartsWithSegments("/api/concentrador/config");
     if (p.StartsWithSegments("/api/concentrador/health")
         || p.StartsWithSegments("/api/concentrador/key/check")
+        || p.StartsWithSegments("/api/concentrador/backend/check")
         || ehGetConfig)
     {
         await next();
@@ -70,8 +75,8 @@ app.Use(async (context, next) =>
     }
 
     var key = ExtrairBearer(context.Request.Headers.Authorization);
-    var auth = context.RequestServices.GetRequiredService<BackendAuthService>();
-    if (!await auth.ValidarKeyAsync(key, context.RequestAborted))
+    var apiKey = context.RequestServices.GetRequiredService<ApiKeyService>();
+    if (!apiKey.ValidarKey(key))
     {
         context.Response.StatusCode = 401;
         await context.Response.WriteAsJsonAsync(new { erro = "API Key inválida" });

@@ -12,20 +12,23 @@ public class ConcentradorController : ControllerBase
     private readonly ConcentradorService _concentrador;
     private readonly PollingService _polling;
     private readonly ConfigService _configService;
-    private readonly BackendAuthService _auth;
+    private readonly ApiKeyService _apiKey;
+    private readonly BackendStatusService _backendStatus;
     private readonly ILogger<ConcentradorController> _logger;
 
     public ConcentradorController(
         ConcentradorService concentrador,
         PollingService polling,
         ConfigService configService,
-        BackendAuthService auth,
+        ApiKeyService apiKey,
+        BackendStatusService backendStatus,
         ILogger<ConcentradorController> logger)
     {
         _concentrador = concentrador;
         _polling = polling;
         _configService = configService;
-        _auth = auth;
+        _apiKey = apiKey;
+        _backendStatus = backendStatus;
         _logger = logger;
     }
 
@@ -365,27 +368,50 @@ public class ConcentradorController : ControllerBase
 
     // ===== Painel: configuração e controle de conexão =====
 
-    // Valida a key (Authorization: Bearer) contra o backend. Liberado sem auth no
-    // middleware — é o "login" do painel. Retorna { success: true|false }.
+    // Valida a key (Authorization: Bearer) localmente contra Backend:ApiKey. Liberado
+    // sem auth no middleware — é o "login" do painel. Retorna { success: true|false }.
     [HttpPost("key/check")]
-    public async Task<IActionResult> CheckKey()
+    public IActionResult CheckKey()
     {
-        var valido = await _auth.ValidarKeyAsync(KeyDoRequest(), HttpContext.RequestAborted);
+        var valido = _apiKey.ValidarKey(KeyDoRequest());
         return Ok(new { success = valido });
     }
 
+    // Verificação real contra o backend. Sem corpo, usa Backend:WebhookUrl + Backend:ApiKey
+    // atuais (auto-check do indicador "Webhook / Backend"). Com webhookUrl/apiKey no corpo,
+    // testa esses valores direto e — se o backend remoto os aceitar — PERSISTE.
+    //
+    // A confirmação do backend remoto é a própria autenticação: salvamos sem exigir a key
+    // anterior, senão não haveria como definir/trocar o token na primeira vez (bootstrap).
+    [HttpPost("backend/check")]
+    public async Task<IActionResult> CheckBackend([FromBody] BackendCheckRequest? request)
+    {
+        var url = request?.WebhookUrl;
+        var key = request?.ApiKey;
+        var ok = await _backendStatus.VerificarAsync(url, key, HttpContext.RequestAborted);
+
+        if (ok && !string.IsNullOrWhiteSpace(url) && !string.IsNullOrWhiteSpace(key))
+        {
+            _configService.SalvarConfig(new ConfigDto
+            {
+                BackendWebhookUrl = url,
+                BackendApiKey = key,
+            });
+        }
+
+        return Ok(new { success = ok });
+    }
+
     [HttpGet("config")]
-    public async Task<IActionResult> LerConfig()
+    public IActionResult LerConfig()
     {
         var cfg = _configService.LerConfig();
 
         // GET é liberado sem auth para o painel popular os padrões no primeiro acesso.
-        // Sem key válida (validada no backend), mascara os segredos para não vazarem na
-        // LAN; o operador só vê as chaves depois de colar a sua e recarregar.
-        var autenticado = await _auth.ValidarKeyAsync(KeyDoRequest(), HttpContext.RequestAborted);
-        if (!autenticado)
+        // Sem key válida, mascara o segredo para não vazar na LAN; o operador só vê a
+        // key depois de colar a sua e recarregar.
+        if (!_apiKey.ValidarKey(KeyDoRequest()))
         {
-            cfg.AuthApiKey = null;
             cfg.BackendApiKey = null;
         }
 

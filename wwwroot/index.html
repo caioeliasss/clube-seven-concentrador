@@ -74,13 +74,6 @@
 
   <main>
     <div class="card">
-      <h2>Acesso</h2>
-      <label for="apiKey">API Key (X-Api-Key) — necessária para salvar e controlar</label>
-      <input type="password" id="apiKey" placeholder="cole a API Key configurada em Auth:ApiKey" />
-      <div class="hint">Guardada localmente neste navegador. Usada nas chamadas protegidas.</div>
-    </div>
-
-    <div class="card">
       <h2>Conexão com o concentrador</h2>
       <div class="row">
         <button class="btn ok" id="btnConectar">Conectar</button>
@@ -103,14 +96,14 @@
         </div>
         <div class="full">
           <label for="backendKey">Token / ApiKey</label>
-          <input id="backendKey" />
+          <input type="password" id="backendKey" placeholder="token do backend" />
+          <div class="hint">Mesma chave usada para controlar o bridge (salvar config, conectar etc.). Guardada localmente após verificar.</div>
         </div>
       </div>
       <div class="row" style="margin-top:18px;">
-        <button class="btn" id="btnSalvarBackend">Salvar backend</button>
-        <button class="btn secondary" id="btnVerificarBackend">Verificar status</button>
+        <button class="btn" id="btnVerificarBackend">Verificar status</button>
       </div>
-      <div class="hint">Status verifica a key no backend via <code>/api/concentrador/key/check</code>: verde = backend acessível e key válida.</div>
+      <div class="hint">"Verificar status" testa a Webhook URL + Token informados acima (<code>Authorization: Bearer &lt;token&gt;</code> contra <code>/api/concentrador/key/check</code> lá). Só salva os dois campos se o backend responder sucesso.</div>
     </div>
 
     <div class="card">
@@ -121,11 +114,6 @@
           <input id="bridgePorta" inputmode="numeric" />
           <div class="hint">Mudança exige Reiniciar.</div>
         </div>
-        <div>
-          <label for="authApiKey">API Key (Auth:ApiKey)</label>
-          <input id="authApiKey" />
-        </div>
-
         <div>
           <label for="concTipo">Tipo de conexão</label>
           <select id="concTipo">
@@ -170,53 +158,65 @@
     const $ = (id) => document.getElementById(id);
     const API = "/api/concentrador";
 
-    // --- API key persistida ---
-    const apiKeyInput = $("apiKey");
-    apiKeyInput.value = localStorage.getItem("seven_apikey") || "";
-    apiKeyInput.addEventListener("change", () => {
-      localStorage.setItem("seven_apikey", apiKeyInput.value.trim());
-      verificarKey();
-    });
+    // --- Token único: é a credencial do backend E a chave que autentica o
+    // painel nas chamadas protegidas. Persistida no navegador após verificar. ---
+    const tokenInput = $("backendKey");
+    tokenInput.value = localStorage.getItem("seven_apikey") || "";
 
     function headers(json) {
       const h = {};
       if (json) h["Content-Type"] = "application/json";
-      const k = apiKeyInput.value.trim();
+      const k = tokenInput.value.trim();
       if (k) h["Authorization"] = "Bearer " + k;
       return h;
     }
 
-    // Consulta /key/check: o bridge valida a key contra o backend, então sucesso
-    // significa backend acessível E key válida. Atualiza o indicador do card Backend.
-    // Retorna true|false|null (null = sem key informada).
-    async function checarBackend() {
-      const k = apiKeyInput.value.trim();
-      if (!k) {
-        $("backendDot").className = "dot warn";
-        $("backendStatusText").textContent = "informe a API Key";
-        return null;
-      }
+    // Verificação real: pede pro bridge confirmar com o backend remoto se a
+    // Backend:ApiKey configurada (ou as overrides passadas) é reconhecida.
+    // Independe da key digitada no login (essa só dá acesso ao painel) —
+    // exige estar logado pra chamar.
+    async function checarBackend(overrides) {
       try {
-        const r = await fetch(`${API}/key/check`, { method: "POST", headers: headers(false) });
+        const r = await fetch(`${API}/backend/check`, {
+          method: "POST", headers: headers(true), body: JSON.stringify(overrides || {}),
+        });
+        if (r.status === 401) {
+          $("backendDot").className = "dot warn";
+          $("backendStatusText").textContent = "faça login no painel primeiro";
+          return null;
+        }
         const j = await r.json().catch(() => ({}));
         const ok = !!j.success;
         $("backendDot").className = "dot " + (ok ? "ok" : "bad");
-        $("backendStatusText").textContent = ok ? "conectado (key válida)" : "key inválida / backend recusou";
+        $("backendStatusText").textContent = ok ? "backend acessível e key reconhecida" : "backend recusou a key configurada";
         return ok;
       } catch {
         $("backendDot").className = "dot bad";
-        $("backendStatusText").textContent = "backend inacessível";
+        $("backendStatusText").textContent = "bridge inacessível";
         return false;
       }
     }
 
-    // Valida a key; recarrega a config (revela segredos mascarados) quando aceita.
-    async function verificarKey() {
-      const k = apiKeyInput.value.trim();
-      if (!k) { checarBackend(); return; }
-      const ok = await checarBackend();
-      if (ok) { toast("API Key válida"); carregar(); }
-      else toast("API Key inválida", false);
+    // Botão "Verificar status": manda o bridge bater na Webhook URL digitada com
+    // Authorization: Bearer <token>. Se o backend confirmar, o próprio servidor
+    // persiste URL+token (a validação remota é a autenticação) — aqui só guardamos
+    // o token no navegador como credencial do painel para as chamadas protegidas.
+    async function verificarESalvarBackend() {
+      const webhookUrl = $("backendUrl").value.trim();
+      const apiKey = $("backendKey").value.trim();
+      if (!webhookUrl || !apiKey) {
+        toast("Informe Webhook URL e Token", false);
+        return;
+      }
+      toast("Verificando backend…");
+      const ok = await checarBackend({ webhookUrl, apiKey });
+      if (ok === null) return; // 401, checarBackend já avisou
+      if (!ok) {
+        toast("Backend recusou o token — nada foi salvo", false);
+        return;
+      }
+      localStorage.setItem("seven_apikey", apiKey);
+      toast("Backend verificado e salvo");
     }
 
     function toast(msg, ok = true) {
@@ -242,7 +242,7 @@
     setInterval(poll, 2000);
     poll();
 
-    // Status do backend (key/check). Menos frequente — o bridge cacheia ~30s.
+    // Status real do backend remoto. Não muito frequente pra não martelar o backend.
     setInterval(checarBackend, 15000);
     checarBackend();
 
@@ -253,13 +253,13 @@
         if (r.status === 401) { toast("API Key inválida", false); return; }
         const c = await r.json();
         $("bridgePorta").value = c.bridgePorta ?? "";
-        $("authApiKey").value = c.authApiKey ?? "";
         $("concTipo").value = c.concentradorTipoConexao ?? "ethernet";
         $("concIp").value = c.concentradorIp ?? "";
         $("concPorta").value = c.concentradorPorta ?? "";
         $("concPortaSerial").value = c.concentradorPortaSerial ?? "";
         $("backendUrl").value = c.backendWebhookUrl ?? "";
-        $("backendKey").value = c.backendApiKey ?? "";
+        // Não sobrescreve o token já em mãos quando a config volta mascarada (null).
+        if (c.backendApiKey != null) $("backendKey").value = c.backendApiKey;
         $("pollMs").value = c.pollingIntervaloMs ?? "";
         $("pollStatusMs").value = c.pollingStatusIntervaloMs ?? "";
       } catch (e) {
@@ -270,7 +270,6 @@
     async function salvar() {
       const dto = {
         bridgePorta: $("bridgePorta").value.trim(),
-        authApiKey: $("authApiKey").value.trim(),
         concentradorTipoConexao: $("concTipo").value,
         concentradorIp: $("concIp").value.trim(),
         concentradorPorta: $("concPorta").value.trim(),
@@ -304,31 +303,9 @@
       }
     }
 
-    // Salva só a seção Backend (DTO parcial; campos não enviados ficam null e o
-    // servidor não os reescreve). Revalida o status em seguida.
-    async function salvarBackend() {
-      const dto = {
-        backendWebhookUrl: $("backendUrl").value.trim(),
-        backendApiKey: $("backendKey").value.trim(),
-      };
-      try {
-        const r = await fetch(`${API}/config`, {
-          method: "POST", headers: headers(true), body: JSON.stringify(dto),
-        });
-        if (r.status === 401) { toast("API Key inválida", false); return; }
-        const j = await r.json();
-        if (!r.ok) { toast(j.erro || "Falha ao salvar backend", false); return; }
-        toast("Backend salvo");
-        checarBackend();
-      } catch {
-        toast("Falha ao salvar backend", false);
-      }
-    }
-
     $("btnSalvar").onclick = salvar;
     $("btnRecarregar").onclick = carregar;
-    $("btnSalvarBackend").onclick = salvarBackend;
-    $("btnVerificarBackend").onclick = () => { toast("Verificando backend…"); checarBackend(); };
+    $("btnVerificarBackend").onclick = verificarESalvarBackend;
     $("btnConectar").onclick = () => acao("conectar", "Conectando…");
     $("btnDesconectar").onclick = () => acao("desconectar", "Desconectado");
     $("btnReiniciar").onclick = () => {

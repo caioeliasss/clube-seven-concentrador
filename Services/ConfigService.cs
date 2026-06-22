@@ -8,7 +8,6 @@ namespace SevenConcentradorBridge.Services;
 public class ConfigDto
 {
     public string? BridgePorta { get; set; }
-    public string? AuthApiKey { get; set; }
 
     public string? ConcentradorTipoConexao { get; set; }
     public string? ConcentradorIp { get; set; }
@@ -22,7 +21,10 @@ public class ConfigDto
     public string? PollingStatusIntervaloMs { get; set; }
 }
 
-// Lê e grava o appsettings.json que está ao lado do executável (AppContext.BaseDirectory).
+// Lê e grava o MESMO appsettings.json que o host carrega e monitora: o do content root
+// (IHostEnvironment.ContentRootPath). Em dev isso é a pasta do projeto; no exe publicado,
+// a pasta ao lado do executável. Usar AppContext.BaseDirectory quebrava o dev — gravava na
+// cópia do bin enquanto a config era lida do projeto, então o token salvo nunca era visto.
 // Usa JsonNode para preservar a estrutura/seções existentes ao reescrever.
 // Como CreateBuilder liga reloadOnChange, reescrever o arquivo recarrega _config a quente
 // para tudo lido por request; só Bridge:Porta (bind único em app.Urls) exige restart.
@@ -31,10 +33,10 @@ public class ConfigService
     private readonly ILogger<ConfigService> _logger;
     private readonly string _path;
 
-    public ConfigService(ILogger<ConfigService> logger)
+    public ConfigService(ILogger<ConfigService> logger, IHostEnvironment env)
     {
         _logger = logger;
-        _path = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+        _path = Path.Combine(env.ContentRootPath, "appsettings.json");
     }
 
     public ConfigDto LerConfig()
@@ -43,7 +45,6 @@ public class ConfigService
         return new ConfigDto
         {
             BridgePorta = Get(root, "Bridge", "Porta"),
-            AuthApiKey = Get(root, "Auth", "ApiKey"),
             ConcentradorTipoConexao = Get(root, "Concentrador", "TipoConexao"),
             ConcentradorIp = Get(root, "Concentrador", "Ip"),
             ConcentradorPorta = Get(root, "Concentrador", "Porta"),
@@ -62,9 +63,8 @@ public class ConfigService
         var portaAntiga = Get(root, "Bridge", "Porta");
 
         Set(root, "Bridge", "Porta", dto.BridgePorta);
-        // Segredos: ignora valor vazio para não apagar a chave existente quando o painel
-        // envia o campo mascarado (GET sem auth devolve null nesses dois).
-        Set(root, "Auth", "ApiKey", NaoVazio(dto.AuthApiKey));
+        // Segredo: ignora valor vazio para não apagar a chave existente quando o painel
+        // envia o campo mascarado (GET sem auth devolve null).
         Set(root, "Concentrador", "TipoConexao", dto.ConcentradorTipoConexao);
         Set(root, "Concentrador", "Ip", dto.ConcentradorIp);
         Set(root, "Concentrador", "Porta", dto.ConcentradorPorta);

@@ -113,6 +113,12 @@ public class SetPrecoRequest
     public string Preco { get; set; } = "";
 }
 
+public class BackendCheckRequest
+{
+    public string? WebhookUrl { get; set; }
+    public string? ApiKey { get; set; }
+}
+
 
 public class PrecoCombustivel
 {
