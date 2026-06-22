@@ -52,7 +52,7 @@ public class BackendAuthService
             return false;
         }
 
-        var url = $"{apiUrl}/api/concentrador/api/check";
+        var url = $"{apiUrl}/api/concentrador/key/check";
         var request = new HttpRequestMessage(HttpMethod.Post, url);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
 
@@ -62,7 +62,7 @@ public class BackendAuthService
             var response = await client.SendAsync(request, ct);
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogWarning("Backend /api/check retornou {Status}", response.StatusCode);
+                _logger.LogWarning("Backend /key/check retornou {Status}", response.StatusCode);
                 return false;
             }
 

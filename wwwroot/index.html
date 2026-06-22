@@ -31,6 +31,10 @@
       padding: 20px; margin-bottom: 20px;
     }
     .card h2 { margin: 0 0 16px; font-size: 15px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+    .card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+    .card-head h2 { margin: 0; }
+    .badge { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--muted); }
+    .dot.warn { background: var(--warn); box-shadow: 0 0 8px var(--warn); }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
     .grid .full { grid-column: 1 / -1; }
     label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
@@ -64,7 +68,7 @@
     <h1>ClubeSevenBridge — Painel</h1>
     <div class="status">
       <span class="dot" id="dot"></span>
-      <span id="statusText">Status: verificando…</span>
+      <span id="statusText">Concentrador: verificando…</span>
     </div>
   </header>
 
@@ -82,6 +86,31 @@
         <button class="btn ok" id="btnConectar">Conectar</button>
         <button class="btn danger" id="btnDesconectar">Desconectar</button>
       </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2>Webhook / Backend</h2>
+        <span class="badge">
+          <span class="dot" id="backendDot"></span>
+          <span id="backendStatusText">verificando…</span>
+        </span>
+      </div>
+      <div class="grid">
+        <div class="full">
+          <label for="backendUrl">Webhook URL</label>
+          <input id="backendUrl" placeholder="https://..." />
+        </div>
+        <div class="full">
+          <label for="backendKey">Token / ApiKey</label>
+          <input id="backendKey" />
+        </div>
+      </div>
+      <div class="row" style="margin-top:18px;">
+        <button class="btn" id="btnSalvarBackend">Salvar backend</button>
+        <button class="btn secondary" id="btnVerificarBackend">Verificar status</button>
+      </div>
+      <div class="hint">Status verifica a key no backend via <code>/api/concentrador/key/check</code>: verde = backend acessível e key válida.</div>
     </div>
 
     <div class="card">
@@ -115,15 +144,6 @@
         <div>
           <label for="concPorta">Porta TCP do concentrador</label>
           <input id="concPorta" inputmode="numeric" />
-        </div>
-
-        <div class="full">
-          <label for="backendUrl">Backend — Webhook URL</label>
-          <input id="backendUrl" placeholder="https://..." />
-        </div>
-        <div class="full">
-          <label for="backendKey">Backend — Token/ApiKey</label>
-          <input id="backendKey" />
         </div>
 
         <div>
@@ -166,19 +186,37 @@
       return h;
     }
 
-    // Valida a key no backend via /key/check; recarrega a config (revela segredos
-    // mascarados) quando a key é aceita.
-    async function verificarKey() {
+    // Consulta /key/check: o bridge valida a key contra o backend, então sucesso
+    // significa backend acessível E key válida. Atualiza o indicador do card Backend.
+    // Retorna true|false|null (null = sem key informada).
+    async function checarBackend() {
       const k = apiKeyInput.value.trim();
-      if (!k) return;
+      if (!k) {
+        $("backendDot").className = "dot warn";
+        $("backendStatusText").textContent = "informe a API Key";
+        return null;
+      }
       try {
         const r = await fetch(`${API}/key/check`, { method: "POST", headers: headers(false) });
         const j = await r.json().catch(() => ({}));
-        if (j.success) { toast("API Key válida"); carregar(); }
-        else toast("API Key inválida", false);
+        const ok = !!j.success;
+        $("backendDot").className = "dot " + (ok ? "ok" : "bad");
+        $("backendStatusText").textContent = ok ? "conectado (key válida)" : "key inválida / backend recusou";
+        return ok;
       } catch {
-        toast("Falha ao verificar a key", false);
+        $("backendDot").className = "dot bad";
+        $("backendStatusText").textContent = "backend inacessível";
+        return false;
       }
+    }
+
+    // Valida a key; recarrega a config (revela segredos mascarados) quando aceita.
+    async function verificarKey() {
+      const k = apiKeyInput.value.trim();
+      if (!k) { checarBackend(); return; }
+      const ok = await checarBackend();
+      if (ok) { toast("API Key válida"); carregar(); }
+      else toast("API Key inválida", false);
     }
 
     function toast(msg, ok = true) {
@@ -203,6 +241,10 @@
     }
     setInterval(poll, 2000);
     poll();
+
+    // Status do backend (key/check). Menos frequente — o bridge cacheia ~30s.
+    setInterval(checarBackend, 15000);
+    checarBackend();
 
     // --- Carregar / salvar config ---
     async function carregar() {
@@ -233,8 +275,6 @@
         concentradorIp: $("concIp").value.trim(),
         concentradorPorta: $("concPorta").value.trim(),
         concentradorPortaSerial: $("concPortaSerial").value.trim(),
-        backendWebhookUrl: $("backendUrl").value.trim(),
-        backendApiKey: $("backendKey").value.trim(),
         pollingIntervaloMs: $("pollMs").value.trim(),
         pollingStatusIntervaloMs: $("pollStatusMs").value.trim(),
       };
@@ -264,8 +304,31 @@
       }
     }
 
+    // Salva só a seção Backend (DTO parcial; campos não enviados ficam null e o
+    // servidor não os reescreve). Revalida o status em seguida.
+    async function salvarBackend() {
+      const dto = {
+        backendWebhookUrl: $("backendUrl").value.trim(),
+        backendApiKey: $("backendKey").value.trim(),
+      };
+      try {
+        const r = await fetch(`${API}/config`, {
+          method: "POST", headers: headers(true), body: JSON.stringify(dto),
+        });
+        if (r.status === 401) { toast("API Key inválida", false); return; }
+        const j = await r.json();
+        if (!r.ok) { toast(j.erro || "Falha ao salvar backend", false); return; }
+        toast("Backend salvo");
+        checarBackend();
+      } catch {
+        toast("Falha ao salvar backend", false);
+      }
+    }
+
     $("btnSalvar").onclick = salvar;
     $("btnRecarregar").onclick = carregar;
+    $("btnSalvarBackend").onclick = salvarBackend;
+    $("btnVerificarBackend").onclick = () => { toast("Verificando backend…"); checarBackend(); };
     $("btnConectar").onclick = () => acao("conectar", "Conectando…");
     $("btnDesconectar").onclick = () => acao("desconectar", "Desconectado");
     $("btnReiniciar").onclick = () => {
