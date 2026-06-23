@@ -32,15 +32,24 @@ public class ConcentradorController : ControllerBase
         _logger = logger;
     }
 
-    // Extrai a key de "Authorization: Bearer <key>" (ou valor cru).
+    // Extrai a key de X-Api-Key (backend) ou "Authorization: Bearer <key>"/valor cru (painel).
     private string? KeyDoRequest()
     {
+        var apiKeyHeader = Request.Headers["X-Api-Key"].FirstOrDefault();
+        if (!string.IsNullOrWhiteSpace(apiKeyHeader)) return apiKeyHeader.Trim();
+
         var header = Request.Headers.Authorization.FirstOrDefault();
         if (string.IsNullOrWhiteSpace(header)) return null;
         const string prefixo = "Bearer ";
         return header.StartsWith(prefixo, StringComparison.OrdinalIgnoreCase)
             ? header[prefixo.Length..].Trim()
             : header.Trim();
+    }
+
+    [HttpGet("check")]
+    public IActionResult Check()
+    {
+        return Ok(new { sucesso = true, message = "Bridge conectada" });
     }
 
     [HttpPost("preset")]

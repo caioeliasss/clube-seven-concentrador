@@ -74,7 +74,7 @@ app.Use(async (context, next) =>
         return;
     }
 
-    var key = ExtrairBearer(context.Request.Headers.Authorization);
+    var key = ExtrairKey(context.Request);
     var apiKey = context.RequestServices.GetRequiredService<ApiKeyService>();
     if (!apiKey.ValidarKey(key))
     {
@@ -85,6 +85,14 @@ app.Use(async (context, next) =>
 
     await next();
 });
+
+// Aceita a key via X-Api-Key (backend/scripts de teste) ou Authorization: Bearer (painel).
+static string? ExtrairKey(HttpRequest request)
+{
+    var apiKey = request.Headers["X-Api-Key"].FirstOrDefault();
+    if (!string.IsNullOrWhiteSpace(apiKey)) return apiKey.Trim();
+    return ExtrairBearer(request.Headers.Authorization);
+}
 
 static string? ExtrairBearer(string? header)
 {
