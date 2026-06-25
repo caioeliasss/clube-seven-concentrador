@@ -150,6 +150,12 @@ public class PrecoPorLitro
 
 public class LerIncrementarResponse
 {
+    // MemoriaVazia: não há registro nenhum no buffer &A ("(0)"/FFFFFF/resposta curta).
+    // Único caso em que NÃO se deve incrementar o ponteiro (não há o que avançar).
+    public bool MemoriaVazia { get; set; }
+
+    // Vazio: registro existe mas sem venda real (total e volume zerados). Avança o ponteiro
+    // (senão trava a fila), porém não gera webhook de abastecimento pro backend.
     public bool Vazio { get; set; }
     public string Raw { get; set; } = "";
     public string Bico { get; set; } = "";

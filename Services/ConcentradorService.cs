@@ -147,7 +147,10 @@ public class ConcentradorService : IDisposable
         if (!_connected) throw new InvalidOperationException("Não conectado ao concentrador");
         string raw = _dll.C_GetSale();
         var resp = ParseGetSale(raw);
-        if (resp.Vazio) return resp;
+        // Só não incrementa quando a memória está realmente vazia. Um registro válido —
+        // ainda que com total/volume zerados — DEVE avançar o ponteiro, senão trava a fila
+        // e nenhuma venda posterior é lida (&I / C_NextSale nunca dispara).
+        if (resp.MemoriaVazia) return resp;
         _dll.C_NextSale();
         return resp;
     });
@@ -159,10 +162,11 @@ public class ConcentradorService : IDisposable
         string p = StripParens(raw);
         if (string.IsNullOrEmpty(p) || p == "0" || p.StartsWith("FFFFFF"))
         {
+            resp.MemoriaVazia = true;
             resp.Vazio = true;
             return resp;
         }
-        if (p.Length < 30) { resp.Vazio = true; return resp; }
+        if (p.Length < 30) { resp.MemoriaVazia = true; resp.Vazio = true; return resp; }
 
         string totalRaw = p.Substring(0, 6);
         string litrosRaw = p.Substring(6, 6);
@@ -504,7 +508,9 @@ public class ConcentradorService : IDisposable
     {
         var resp = new PonteirosResponse { Raw = raw };
         string payload = StripParens(raw);
-        if (payload.Length < 12 || !payload.StartsWith("TP99")) return resp;
+        // O manual documenta header TP99, mas o concentrador em campo responde TG99.
+        // Aceita ambos (T?99XXXXYYYYKK); X = ponteiro de escrita, Y = ponteiro de leitura.
+        if (payload.Length < 12 || !(payload.StartsWith("TP99") || payload.StartsWith("TG99"))) return resp;
 
         if (int.TryParse(payload.Substring(4, 4), NumberStyles.Integer, CultureInfo.InvariantCulture, out int w))
             resp.Write = w;
