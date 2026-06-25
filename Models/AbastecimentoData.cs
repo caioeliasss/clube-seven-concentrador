@@ -97,6 +97,12 @@ public class PresetRequest
     public string Valor { get; set; } = "";
 }
 
+public class CheckRequest
+{
+    public string bridgeUrl { get; set; } = "";
+    public string bridgeKey { get; set; } = "";
+}
+
 public class BicoRequest
 {
     public string Bico { get; set; } = "";
@@ -111,6 +117,12 @@ public class SetPrecoRequest
 {
     public string Bico { get; set; } = "";
     public string Preco { get; set; } = "";
+}
+
+public class BackendCheckRequest
+{
+    public string? WebhookUrl { get; set; }
+    public string? ApiKey { get; set; }
 }
 
 

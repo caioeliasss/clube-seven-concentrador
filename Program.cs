@@ -34,40 +34,83 @@ builder.Services.AddControllers();
 builder.Services.AddHttpClient("Backend");
 
 // Registrar serviços
+builder.Services.AddSingleton<ConfigService>();
+builder.Services.AddSingleton<ApiKeyService>();
+builder.Services.AddSingleton<BackendStatusService>();
 builder.Services.AddSingleton<ConcentradorService>();
 builder.Services.AddSingleton<PollingService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<PollingService>());
+builder.Services.AddHostedService<StatusPollingService>();
 
 var app = builder.Build();
 
-// Middleware de autenticação por API Key
+// Painel web servido em "/" (wwwroot/index.html). Antes do middleware de auth
+// para a página carregar sem key; as chamadas de API seguem protegidas.
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
+// Middleware de autenticação: a key vem em Authorization: Bearer <key> e é
+// validada localmente contra Backend:ApiKey no appsettings.json (mesma key usada
+// pelo bridge para se autenticar no backend ao enviar webhooks). Sem chamada de
+// rede aqui — trocar Backend:WebhookUrl/ApiKey não derruba o acesso ao painel.
 app.Use(async (context, next) =>
 {
-    // Permitir health check sem auth
-    if (context.Request.Path.StartsWithSegments("/api/concentrador/health"))
+    var p = context.Request.Path;
+
+    // Liberados sem auth:
+    //  - health: status do bridge.
+    //  - GET config: painel carrega os padrões no primeiro acesso (segredos mascarados).
+    //  - key/check: é justamente o endpoint que valida a key (senão seria circular).
+    //  - backend/check: o painel testa a Webhook URL + token DIGITADOS (ainda não salvos)
+    //    contra o backend remoto; exigir auth aqui impediria verificar um token novo.
+    var ehGetConfig = HttpMethods.IsGet(context.Request.Method)
+        && p.StartsWithSegments("/api/concentrador/config");
+    if (p.StartsWithSegments("/api/concentrador/health")
+        || p.StartsWithSegments("/api/concentrador/key/check")
+        || p.StartsWithSegments("/api/concentrador/backend/check")
+        || ehGetConfig)
     {
         await next();
         return;
     }
 
-    var apiKey = app.Configuration["Auth:ApiKey"];
-    if (!string.IsNullOrEmpty(apiKey))
+    var key = ExtrairKey(context.Request);
+    var apiKey = context.RequestServices.GetRequiredService<ApiKeyService>();
+    if (!apiKey.ValidarKey(key))
     {
-        var requestKey = context.Request.Headers["X-Api-Key"].FirstOrDefault();
-        if (requestKey != apiKey)
-        {
-            context.Response.StatusCode = 401;
-            await context.Response.WriteAsJsonAsync(new { erro = "API Key inválida" });
-            return;
-        }
+        context.Response.StatusCode = 401;
+        await context.Response.WriteAsJsonAsync(new { erro = "API Key inválida" });
+        return;
     }
 
     await next();
 });
+
+// Aceita a key via X-Api-Key (backend/scripts de teste) ou Authorization: Bearer (painel).
+static string? ExtrairKey(HttpRequest request)
+{
+    var apiKey = request.Headers["X-Api-Key"].FirstOrDefault();
+    if (!string.IsNullOrWhiteSpace(apiKey)) return apiKey.Trim();
+    return ExtrairBearer(request.Headers.Authorization);
+}
+
+static string? ExtrairBearer(string? header)
+{
+    if (string.IsNullOrWhiteSpace(header)) return null;
+    const string prefixo = "Bearer ";
+    return header.StartsWith(prefixo, StringComparison.OrdinalIgnoreCase)
+        ? header[prefixo.Length..].Trim()
+        : header.Trim();
+}
 
 app.MapControllers();
 
 var porta = app.Configuration["Bridge:Porta"] ?? "5100";
 app.Urls.Add($"http://0.0.0.0:{porta}");
 
-app.Run();
+// Exe publicado (WinExe, sem console): roda com ícone na bandeja perto do relógio.
+// Dev (console presente): mantém comportamento normal com logs e Ctrl+C.
+if (TrayIcon.ConsolePresent)
+    app.Run();
+else
+    TrayIcon.Run(app, porta);

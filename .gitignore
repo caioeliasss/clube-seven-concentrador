@@ -4,3 +4,5 @@ obj
 *.rar
 *.zip
 clube-seven-concentrador-v0.0/
+dist/
+installer/

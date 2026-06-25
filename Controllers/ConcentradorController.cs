@@ -11,16 +11,45 @@ public class ConcentradorController : ControllerBase
 {
     private readonly ConcentradorService _concentrador;
     private readonly PollingService _polling;
+    private readonly ConfigService _configService;
+    private readonly ApiKeyService _apiKey;
+    private readonly BackendStatusService _backendStatus;
     private readonly ILogger<ConcentradorController> _logger;
 
     public ConcentradorController(
         ConcentradorService concentrador,
         PollingService polling,
+        ConfigService configService,
+        ApiKeyService apiKey,
+        BackendStatusService backendStatus,
         ILogger<ConcentradorController> logger)
     {
         _concentrador = concentrador;
         _polling = polling;
+        _configService = configService;
+        _apiKey = apiKey;
+        _backendStatus = backendStatus;
         _logger = logger;
+    }
+
+    // Extrai a key de X-Api-Key (backend) ou "Authorization: Bearer <key>"/valor cru (painel).
+    private string? KeyDoRequest()
+    {
+        var apiKeyHeader = Request.Headers["X-Api-Key"].FirstOrDefault();
+        if (!string.IsNullOrWhiteSpace(apiKeyHeader)) return apiKeyHeader.Trim();
+
+        var header = Request.Headers.Authorization.FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(header)) return null;
+        const string prefixo = "Bearer ";
+        return header.StartsWith(prefixo, StringComparison.OrdinalIgnoreCase)
+            ? header[prefixo.Length..].Trim()
+            : header.Trim();
+    }
+
+    [HttpGet("check")]
+    public IActionResult Check()
+    {
+        return Ok(new { sucesso = true, message = "Bridge conectada" });
     }
 
     [HttpPost("preset")]
@@ -341,6 +370,129 @@ public class ConcentradorController : ControllerBase
     [HttpGet("health")]
     public IActionResult Health()
     {
-        return Ok(new { status = "ok", timestamp = DateTime.UtcNow });
+        return Ok(new
+        {
+            status = "ok",
+            conectado = _concentrador.IsConnected,
+            timestamp = DateTime.UtcNow
+        });
+    }
+
+    // ===== Painel: configuração e controle de conexão =====
+
+    // Valida a key (Authorization: Bearer) localmente contra Backend:ApiKey. Liberado
+    // sem auth no middleware — é o "login" do painel. Retorna { success: true|false }.
+    [HttpPost("key/check")]
+    public IActionResult CheckKey()
+    {
+        var valido = _apiKey.ValidarKey(KeyDoRequest());
+        return Ok(new { success = valido });
+    }
+
+    // Verificação real contra o backend. Sem corpo, usa Backend:WebhookUrl + Backend:ApiKey
+    // atuais (auto-check do indicador "Webhook / Backend"). Com webhookUrl/apiKey no corpo,
+    // testa esses valores direto e — se o backend remoto os aceitar — PERSISTE.
+    //
+    // A confirmação do backend remoto é a própria autenticação: salvamos sem exigir a key
+    // anterior, senão não haveria como definir/trocar o token na primeira vez (bootstrap).
+    [HttpPost("backend/check")]
+    public async Task<IActionResult> CheckBackend([FromBody] BackendCheckRequest? request)
+    {
+        var url = request?.WebhookUrl;
+        var key = request?.ApiKey;
+        var ok = await _backendStatus.VerificarAsync(url, key, HttpContext.RequestAborted);
+
+        if (ok && !string.IsNullOrWhiteSpace(url) && !string.IsNullOrWhiteSpace(key))
+        {
+            _configService.SalvarConfig(new ConfigDto
+            {
+                BackendWebhookUrl = url,
+                BackendApiKey = key,
+            });
+        }
+
+        return Ok(new { success = ok });
+    }
+
+    [HttpGet("config")]
+    public IActionResult LerConfig()
+    {
+        var cfg = _configService.LerConfig();
+
+        // GET é liberado sem auth para o painel popular os padrões no primeiro acesso.
+        // Sem key válida, mascara o segredo para não vazar na LAN; o operador só vê a
+        // key depois de colar a sua e recarregar.
+        if (!_apiKey.ValidarKey(KeyDoRequest()))
+        {
+            cfg.BackendApiKey = null;
+        }
+
+        return Ok(cfg);
+    }
+
+    [HttpPost("config")]
+    public IActionResult SalvarConfig([FromBody] ConfigDto dto)
+    {
+        if (dto == null)
+            return BadRequest(new { erro = "Corpo vazio" });
+
+        try
+        {
+            var requerRestart = _configService.SalvarConfig(dto);
+            return Ok(new { sucesso = true, requerRestart });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Falha ao salvar configuração");
+            return StatusCode(500, new { erro = ex.Message });
+        }
+    }
+
+    [HttpPost("conectar")]
+    public IActionResult Conectar()
+    {
+        var ok = _concentrador.Conectar();
+        return ok
+            ? Ok(new { conectado = true })
+            : StatusCode(503, new { conectado = false, erro = "Falha ao conectar ao concentrador" });
+    }
+
+    [HttpPost("desconectar")]
+    public IActionResult Desconectar()
+    {
+        _concentrador.Desconectar();
+        return Ok(new { conectado = false });
+    }
+
+    [HttpPost("reiniciar")]
+    public IActionResult Reiniciar()
+    {
+        var exe = Environment.ProcessPath;
+        if (string.IsNullOrEmpty(exe))
+            return StatusCode(500, new { erro = "Não foi possível localizar o executável" });
+
+        _logger.LogWarning("Reinício solicitado pelo painel — respawn de {Exe}", exe);
+
+        // Sobe novo processo após um pequeno atraso (para o atual liberar a porta) e encerra este.
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(800);
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = exe,
+                    UseShellExecute = true,
+                    WorkingDirectory = AppContext.BaseDirectory,
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Falha ao respawnar processo");
+            }
+            Environment.Exit(0);
+        });
+
+        return Ok(new { sucesso = true, mensagem = "Reiniciando..." });
     }
 }

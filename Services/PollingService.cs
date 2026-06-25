@@ -47,7 +47,19 @@ public class PollingService : BackgroundService
         {
             try
             {
-                await VerificarAbastecimento();
+                // Recupera queda de conexão (cabo/rede) sem precisar reiniciar o processo.
+                // Só reconecta se o estado desejado for conectado (não briga com Desconectar manual).
+                if (!_concentrador.IsConnected && _concentrador.DesejaConectado)
+                {
+                    if (!_concentrador.Conectar())
+                    {
+                        await Task.Delay(intervalo, stoppingToken);
+                        continue;
+                    }
+                }
+
+                if (_concentrador.IsConnected)
+                    await VerificarAbastecimento();
             }
             catch (Exception ex)
             {
@@ -76,12 +88,14 @@ public class PollingService : BackgroundService
 
     private async Task EnviarParaBackend(string respostaRaw)
     {
-        var apiUrl = (_config["API_URL"] ?? "").TrimEnd('/');
-        var token = _config["TOKEN"] ?? "";
+        // Fonte preferida: appsettings Backend:* (editável pelo painel, hot-reload).
+        // Fallback: API_URL/TOKEN do .env (compatibilidade).
+        var apiUrl = (_config["Backend:WebhookUrl"] ?? _config["API_URL"] ?? "").TrimEnd('/');
+        var token = _config["Backend:ApiKey"] ?? _config["TOKEN"] ?? "";
 
         if (string.IsNullOrEmpty(apiUrl))
         {
-            _logger.LogWarning("API_URL não configurada — abastecimento não enviado");
+            _logger.LogWarning("Backend:WebhookUrl/API_URL não configurada — abastecimento não enviado");
             return;
         }
 

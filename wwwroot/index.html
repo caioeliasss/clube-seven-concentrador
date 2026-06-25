@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" href="favicon.ico" />
+  <title>ClubeSevenBridge — Painel</title>
+  <style>
+    :root {
+      --bg: #0f172a; --card: #1e293b; --fg: #e2e8f0; --muted: #94a3b8;
+      --border: #334155; --accent: #3b82f6; --ok: #22c55e; --bad: #ef4444; --warn: #f59e0b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: var(--bg); color: var(--fg); line-height: 1.5;
+    }
+    header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 24px; border-bottom: 1px solid var(--border); background: var(--card);
+      position: sticky; top: 0; z-index: 10;
+    }
+    header h1 { font-size: 18px; margin: 0; }
+    .status { display: flex; align-items: center; gap: 10px; font-weight: 600; }
+    .dot { width: 14px; height: 14px; border-radius: 50%; background: var(--muted); transition: background .3s; }
+    .dot.ok { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+    .dot.bad { background: var(--bad); box-shadow: 0 0 8px var(--bad); }
+    main { max-width: 760px; margin: 0 auto; padding: 24px; }
+    .card {
+      background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+      padding: 20px; margin-bottom: 20px;
+    }
+    .card h2 { margin: 0 0 16px; font-size: 15px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+    .card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+    .card-head h2 { margin: 0; }
+    .badge { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--muted); }
+    .dot.warn { background: var(--warn); box-shadow: 0 0 8px var(--warn); }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .grid .full { grid-column: 1 / -1; }
+    label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+    input, select {
+      width: 100%; padding: 9px 11px; border-radius: 8px; border: 1px solid var(--border);
+      background: var(--bg); color: var(--fg); font-size: 14px;
+    }
+    input:focus, select:focus { outline: none; border-color: var(--accent); }
+    .btn {
+      padding: 10px 18px; border-radius: 8px; border: none; cursor: pointer;
+      font-size: 14px; font-weight: 600; color: #fff; background: var(--accent);
+    }
+    .btn:hover { filter: brightness(1.1); }
+    .btn.secondary { background: var(--border); }
+    .btn.danger { background: var(--bad); }
+    .btn.ok { background: var(--ok); }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; }
+    .toast {
+      position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+      padding: 12px 20px; border-radius: 8px; font-weight: 600; opacity: 0;
+      transition: opacity .3s; pointer-events: none; z-index: 100;
+    }
+    .toast.show { opacity: 1; }
+    .toast.ok { background: var(--ok); color: #052e16; }
+    .toast.bad { background: var(--bad); color: #450a0a; }
+    .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>ClubeSevenBridge — Painel</h1>
+    <div class="status">
+      <span class="dot" id="dot"></span>
+      <span id="statusText">Concentrador: verificando…</span>
+    </div>
+  </header>
+
+  <main>
+    <div class="card">
+      <h2>Conexão com o concentrador</h2>
+      <div class="row">
+        <button class="btn ok" id="btnConectar">Conectar</button>
+        <button class="btn danger" id="btnDesconectar">Desconectar</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2>Webhook / Backend</h2>
+        <span class="badge">
+          <span class="dot" id="backendDot"></span>
+          <span id="backendStatusText">verificando…</span>
+        </span>
+      </div>
+      <div class="grid">
+        <div class="full">
+          <label for="backendUrl">Webhook URL</label>
+          <input id="backendUrl" placeholder="https://..." />
+        </div>
+        <div class="full">
+          <label for="backendKey">Token / ApiKey</label>
+          <input type="password" id="backendKey" placeholder="token do backend" />
+          <div class="hint">Mesma chave usada para controlar o bridge (salvar config, conectar etc.). Guardada localmente após verificar.</div>
+        </div>
+      </div>
+      <div class="row" style="margin-top:18px;">
+        <button class="btn" id="btnVerificarBackend">Verificar status</button>
+      </div>
+      <div class="hint">"Verificar status" testa a Webhook URL + Token informados acima (<code>Authorization: Bearer &lt;token&gt;</code> contra <code>/api/concentrador/key/check</code> lá). Só salva os dois campos se o backend responder sucesso.</div>
+    </div>
+
+    <div class="card">
+      <h2>Configuração</h2>
+      <div class="grid">
+        <div>
+          <label for="bridgePorta">Porta do bridge (HTTP)</label>
+          <input id="bridgePorta" inputmode="numeric" />
+          <div class="hint">Mudança exige Reiniciar.</div>
+        </div>
+        <div>
+          <label for="concTipo">Tipo de conexão</label>
+          <select id="concTipo">
+            <option value="ethernet">ethernet</option>
+            <option value="serial">serial</option>
+          </select>
+        </div>
+        <div>
+          <label for="concPortaSerial">Porta serial (COM nº)</label>
+          <input id="concPortaSerial" inputmode="numeric" />
+        </div>
+        <div>
+          <label for="concIp">IP do concentrador</label>
+          <input id="concIp" />
+        </div>
+        <div>
+          <label for="concPorta">Porta TCP do concentrador</label>
+          <input id="concPorta" inputmode="numeric" />
+        </div>
+
+        <div>
+          <label for="pollMs">Polling abastecimento (ms)</label>
+          <input id="pollMs" inputmode="numeric" />
+        </div>
+        <div>
+          <label for="pollStatusMs">Polling status (ms)</label>
+          <input id="pollStatusMs" inputmode="numeric" />
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:18px;">
+        <button class="btn" id="btnSalvar">Salvar</button>
+        <button class="btn secondary" id="btnRecarregar">Recarregar</button>
+        <button class="btn danger" id="btnReiniciar">Reiniciar p/ aplicar</button>
+      </div>
+    </div>
+  </main>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const API = "/api/concentrador";
+
+    // --- Token único: é a credencial do backend E a chave que autentica o
+    // painel nas chamadas protegidas. Persistida no navegador após verificar. ---
+    const tokenInput = $("backendKey");
+    tokenInput.value = localStorage.getItem("seven_apikey") || "";
+
+    function headers(json) {
+      const h = {};
+      if (json) h["Content-Type"] = "application/json";
+      const k = tokenInput.value.trim();
+      if (k) h["Authorization"] = "Bearer " + k;
+      return h;
+    }
+
+    // Verificação real: pede pro bridge confirmar com o backend remoto se a
+    // Backend:ApiKey configurada (ou as overrides passadas) é reconhecida.
+    // Independe da key digitada no login (essa só dá acesso ao painel) —
+    // exige estar logado pra chamar.
+    async function checarBackend(overrides) {
+      try {
+        const r = await fetch(`${API}/backend/check`, {
+          method: "POST", headers: headers(true), body: JSON.stringify(overrides || {}),
+        });
+        if (r.status === 401) {
+          $("backendDot").className = "dot warn";
+          $("backendStatusText").textContent = "faça login no painel primeiro";
+          return null;
+        }
+        const j = await r.json().catch(() => ({}));
+        const ok = !!j.success;
+        $("backendDot").className = "dot " + (ok ? "ok" : "bad");
+        $("backendStatusText").textContent = ok ? "backend acessível e key reconhecida" : "backend recusou a key configurada";
+        return ok;
+      } catch {
+        $("backendDot").className = "dot bad";
+        $("backendStatusText").textContent = "bridge inacessível";
+        return false;
+      }
+    }
+
+    // Botão "Verificar status": manda o bridge bater na Webhook URL digitada com
+    // Authorization: Bearer <token>. Se o backend confirmar, o próprio servidor
+    // persiste URL+token (a validação remota é a autenticação) — aqui só guardamos
+    // o token no navegador como credencial do painel para as chamadas protegidas.
+    async function verificarESalvarBackend() {
+      const webhookUrl = $("backendUrl").value.trim();
+      const apiKey = $("backendKey").value.trim();
+      if (!webhookUrl || !apiKey) {
+        toast("Informe Webhook URL e Token", false);
+        return;
+      }
+      toast("Verificando backend…");
+      const ok = await checarBackend({ webhookUrl, apiKey });
+      if (ok === null) return; // 401, checarBackend já avisou
+      if (!ok) {
+        toast("Backend recusou o token — nada foi salvo", false);
+        return;
+      }
+      localStorage.setItem("seven_apikey", apiKey);
+      toast("Backend verificado e salvo");
+    }
+
+    function toast(msg, ok = true) {
+      const t = $("toast");
+      t.textContent = msg;
+      t.className = "toast show " + (ok ? "ok" : "bad");
+      setTimeout(() => (t.className = "toast"), 2600);
+    }
+
+    // --- Indicador de status (sem auth) ---
+    async function poll() {
+      try {
+        const r = await fetch(`${API}/health`);
+        const j = await r.json();
+        const conectado = !!j.conectado;
+        $("dot").className = "dot " + (conectado ? "ok" : "bad");
+        $("statusText").textContent = "Status: " + (conectado ? "conectado" : "não conectado");
+      } catch {
+        $("dot").className = "dot bad";
+        $("statusText").textContent = "Status: bridge offline";
+      }
+    }
+    setInterval(poll, 2000);
+    poll();
+
+    // Status real do backend remoto. Não muito frequente pra não martelar o backend.
+    setInterval(checarBackend, 15000);
+    checarBackend();
+
+    // --- Carregar / salvar config ---
+    async function carregar() {
+      try {
+        const r = await fetch(`${API}/config`, { headers: headers(false) });
+        if (r.status === 401) { toast("API Key inválida", false); return; }
+        const c = await r.json();
+        $("bridgePorta").value = c.bridgePorta ?? "";
+        $("concTipo").value = c.concentradorTipoConexao ?? "ethernet";
+        $("concIp").value = c.concentradorIp ?? "";
+        $("concPorta").value = c.concentradorPorta ?? "";
+        $("concPortaSerial").value = c.concentradorPortaSerial ?? "";
+        $("backendUrl").value = c.backendWebhookUrl ?? "";
+        // Não sobrescreve o token já em mãos quando a config volta mascarada (null).
+        if (c.backendApiKey != null) $("backendKey").value = c.backendApiKey;
+        $("pollMs").value = c.pollingIntervaloMs ?? "";
+        $("pollStatusMs").value = c.pollingStatusIntervaloMs ?? "";
+      } catch (e) {
+        toast("Falha ao carregar config", false);
+      }
+    }
+
+    async function salvar() {
+      const dto = {
+        bridgePorta: $("bridgePorta").value.trim(),
+        concentradorTipoConexao: $("concTipo").value,
+        concentradorIp: $("concIp").value.trim(),
+        concentradorPorta: $("concPorta").value.trim(),
+        concentradorPortaSerial: $("concPortaSerial").value.trim(),
+        pollingIntervaloMs: $("pollMs").value.trim(),
+        pollingStatusIntervaloMs: $("pollStatusMs").value.trim(),
+      };
+      try {
+        const r = await fetch(`${API}/config`, {
+          method: "POST", headers: headers(true), body: JSON.stringify(dto),
+        });
+        if (r.status === 401) { toast("API Key inválida", false); return; }
+        const j = await r.json();
+        if (!r.ok) { toast(j.erro || "Falha ao salvar", false); return; }
+        toast(j.requerRestart ? "Salvo — reinicie para aplicar a porta" : "Salvo (aplicado a quente)");
+      } catch {
+        toast("Falha ao salvar", false);
+      }
+    }
+
+    async function acao(path, okMsg) {
+      try {
+        const r = await fetch(`${API}/${path}`, { method: "POST", headers: headers(false) });
+        if (r.status === 401) { toast("API Key inválida", false); return; }
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) { toast(j.erro || "Falha", false); return; }
+        toast(okMsg);
+        poll();
+      } catch {
+        toast("Falha na requisição", false);
+      }
+    }
+
+    $("btnSalvar").onclick = salvar;
+    $("btnRecarregar").onclick = carregar;
+    $("btnVerificarBackend").onclick = verificarESalvarBackend;
+    $("btnConectar").onclick = () => acao("conectar", "Conectando…");
+    $("btnDesconectar").onclick = () => acao("desconectar", "Desconectado");
+    $("btnReiniciar").onclick = () => {
+      if (confirm("Reiniciar o bridge agora? A conexão cai por alguns segundos.")) {
+        acao("reiniciar", "Reiniciando — recarregue a página em instantes");
+      }
+    };
+
+    carregar();
+  </script>
+</body>
+</html>
