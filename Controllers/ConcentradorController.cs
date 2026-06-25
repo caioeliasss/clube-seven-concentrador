@@ -77,12 +77,15 @@ public class ConcentradorController : ControllerBase
         string? bicoFiltro = null;
         if (!string.IsNullOrWhiteSpace(bico))
         {
-            if (int.TryParse(bico, NumberStyles.Integer, CultureInfo.InvariantCulture, out var n) && n >= 1 && n <= 32)
-                bicoFiltro = n.ToString("D2");
+            // Bico é um código hexadecimal de 2 dígitos do protocolo (ex.: "45", "0D", "04"),
+            // não um decimal 1-32. Casa com VisualizacaoBico.Bico (substring crua de C_Visualize).
+            var cand = bico.Trim().ToUpperInvariant();
+            if (cand.Length <= 2 && cand.All(Uri.IsHexDigit))
+                bicoFiltro = cand.PadLeft(2, '0');
             else
             {
                 Response.StatusCode = 400;
-                await Response.WriteAsync($"event: erro\ndata: {{\"erro\":\"bico inválido (use 1-32)\"}}\n\n", ct);
+                await Response.WriteAsync($"event: erro\ndata: {{\"erro\":\"bico inválido (use código hexadecimal de 2 dígitos, ex.: 45, 0D, 04)\"}}\n\n", ct);
                 return;
             }
         }
