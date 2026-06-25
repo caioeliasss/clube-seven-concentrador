@@ -5,7 +5,10 @@
 #define AppName "ClubeSevenBridge"
 #define AppPublisher "Clube Seven"
 #define AppExe "SevenConcentradorBridge.exe"
-#define AppVersion "0.7.2"
+; Versão: build-installer.bat passa /DAppVersion (extraída do csproj). Default só p/ build manual.
+#ifndef AppVersion
+  #define AppVersion "0.0.0"
+#endif
 #define DefaultPort "5100"
 
 [Setup]
@@ -25,6 +28,13 @@ UninstallDisplayIcon={app}\{#AppExe}
 ; App x86; permitir instalar em Windows 64-bit tambem.
 ArchitecturesAllowed=x86 x64
 PrivilegesRequired=admin
+; Upgrade com o app rodando (auto-start na bandeja): o AppMutex casa com o mutex nomeado
+; criado pelo exe (Program.cs). CloseApplications fecha o bridge via Restart Manager antes de
+; copiar os arquivos (libera o exe e a companytec.dll do worker); RestartApplications reinicia
+; ao final — inclusive em modo silencioso (auto-update).
+AppMutex=ClubeSevenBridgeSingleInstance
+CloseApplications=yes
+RestartApplications=yes
 
 [Languages]
 Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortuguese.isl"

@@ -7,6 +7,15 @@ if (args.Contains("--worker"))
     return;
 }
 
+// Mutex nomeado: casa com AppMutex no installer/setup.iss. Permite que o instalador detecte
+// o bridge rodando e o feche via Restart Manager (CloseApplications) antes do upgrade —
+// liberando o exe e a companytec.dll. Também garante instância única.
+// Mantido vivo até o fim do processo (GC.KeepAlive ao final).
+bool primeiraInstancia;
+var instanciaMutex = new System.Threading.Mutex(true, "ClubeSevenBridgeSingleInstance", out primeiraInstancia);
+if (!primeiraInstancia)
+    return; // já há um bridge rodando — não sobe outra instância.
+
 // Load .env.dev or .env.prod based on ASPNETCORE_ENVIRONMENT before builder
 var aspnetEnv = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production";
 var envFile = aspnetEnv.Equals("Development", StringComparison.OrdinalIgnoreCase) ? ".env.development" : ".env.production";
@@ -41,6 +50,9 @@ builder.Services.AddSingleton<ConcentradorService>();
 builder.Services.AddSingleton<PollingService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<PollingService>());
 builder.Services.AddHostedService<StatusPollingService>();
+// Singleton + hosted: o controller (GET /version) lê o estado do mesmo objeto.
+builder.Services.AddSingleton<UpdateService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<UpdateService>());
 
 var app = builder.Build();
 
@@ -66,6 +78,7 @@ app.Use(async (context, next) =>
     var ehGetConfig = HttpMethods.IsGet(context.Request.Method)
         && p.StartsWithSegments("/api/concentrador/config");
     if (p.StartsWithSegments("/api/concentrador/health")
+        || p.StartsWithSegments("/api/concentrador/version")
         || p.StartsWithSegments("/api/concentrador/key/check")
         || p.StartsWithSegments("/api/concentrador/backend/check")
         || ehGetConfig)
@@ -114,3 +127,6 @@ if (TrayIcon.ConsolePresent)
     app.Run();
 else
     TrayIcon.Run(app, porta);
+
+// Segura o mutex até aqui (após o host parar). Antes disso o GC poderia coletá-lo.
+GC.KeepAlive(instanciaMutex);

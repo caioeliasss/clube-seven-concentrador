@@ -14,6 +14,7 @@ public class ConcentradorController : ControllerBase
     private readonly ConfigService _configService;
     private readonly ApiKeyService _apiKey;
     private readonly BackendStatusService _backendStatus;
+    private readonly UpdateService _update;
     private readonly ILogger<ConcentradorController> _logger;
 
     public ConcentradorController(
@@ -22,6 +23,7 @@ public class ConcentradorController : ControllerBase
         ConfigService configService,
         ApiKeyService apiKey,
         BackendStatusService backendStatus,
+        UpdateService update,
         ILogger<ConcentradorController> logger)
     {
         _concentrador = concentrador;
@@ -29,6 +31,7 @@ public class ConcentradorController : ControllerBase
         _configService = configService;
         _apiKey = apiKey;
         _backendStatus = backendStatus;
+        _update = update;
         _logger = logger;
     }
 
@@ -374,7 +377,20 @@ public class ConcentradorController : ControllerBase
         {
             status = "ok",
             conectado = _concentrador.IsConnected,
+            versao = _update.VersaoAtual.ToString(),
             timestamp = DateTime.UtcNow
+        });
+    }
+
+    // Versão atual e estado do auto-update (liberado no middleware, como /health).
+    [HttpGet("version")]
+    public IActionResult Versao()
+    {
+        return Ok(new
+        {
+            versao = _update.VersaoAtual.ToString(),
+            atualizacaoDisponivel = _update.AtualizacaoDisponivel,
+            versaoMaisRecente = _update.VersaoMaisRecente?.ToString(),
         });
     }
 
