@@ -21,13 +21,12 @@ public class ConfigDto
     public string? PollingStatusIntervaloMs { get; set; }
 }
 
-// Lê e grava o MESMO appsettings.json que o host carrega e monitora: o do content root
-// (IHostEnvironment.ContentRootPath). Em dev isso é a pasta do projeto; no exe publicado,
-// a pasta ao lado do executável. Usar AppContext.BaseDirectory quebrava o dev — gravava na
-// cópia do bin enquanto a config era lida do projeto, então o token salvo nunca era visto.
+// Lê e grava o MESMO appsettings.json gravável que o host carrega e monitora (ver AppPaths):
+// em dev, o do content root (pasta do projeto); no exe publicado, C:\ProgramData\ClubeSevenBridge\
+// — fora do Program Files, para que salvar config pelo painel não exija administrador.
 // Usa JsonNode para preservar a estrutura/seções existentes ao reescrever.
-// Como CreateBuilder liga reloadOnChange, reescrever o arquivo recarrega _config a quente
-// para tudo lido por request; só Bridge:Porta (bind único em app.Urls) exige restart.
+// Program.cs adiciona esse arquivo como fonte com reloadOnChange, então reescrevê-lo recarrega
+// _config a quente para tudo lido por request; só Bridge:Porta (bind único em app.Urls) exige restart.
 public class ConfigService
 {
     private readonly ILogger<ConfigService> _logger;
@@ -36,7 +35,7 @@ public class ConfigService
     public ConfigService(ILogger<ConfigService> logger, IHostEnvironment env)
     {
         _logger = logger;
-        _path = Path.Combine(env.ContentRootPath, "appsettings.json");
+        _path = AppPaths.EnsureWritableConfig(env);
     }
 
     public ConfigDto LerConfig()

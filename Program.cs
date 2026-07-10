@@ -39,6 +39,13 @@ foreach (var envPath in new[]
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Config gravável fora do Program Files (ProgramData) — evita exigir admin para salvar
+// pelo painel. Em prod, sobrepõe o appsettings.json baseline do {app} com hot-reload; em dev,
+// EnsureWritableConfig devolve o próprio arquivo do projeto (já carregado pelo CreateBuilder).
+var writableConfig = SevenConcentradorBridge.Services.AppPaths.EnsureWritableConfig(builder.Environment);
+if (!builder.Environment.IsDevelopment())
+    builder.Configuration.AddJsonFile(writableConfig, optional: true, reloadOnChange: true);
+
 builder.Services.AddControllers();
 builder.Services.AddHttpClient("Backend");
 

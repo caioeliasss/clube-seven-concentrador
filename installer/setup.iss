@@ -39,6 +39,12 @@ RestartApplications=yes
 [Languages]
 Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortuguese.isl"
 
+[Dirs]
+; Pasta da config gravável (appsettings.json editado pelo painel). Fica fora do Program Files
+; e é liberada para escrita de usuários comuns — assim o bridge NÃO precisa rodar como admin
+; para salvar config. O app cria/semeia o arquivo na primeira execução (ver AppPaths.cs).
+Name: "{commonappdata}\ClubeSevenBridge"; Permissions: users-modify
+
 [Tasks]
 Name: "autostart"; Description: "Iniciar automaticamente quando o Windows ligar"; GroupDescription: "Inicialização:"
 Name: "firewall"; Description: "Liberar a porta {#DefaultPort} no Firewall do Windows"; GroupDescription: "Rede:"
