@@ -54,13 +54,13 @@ builder.Services.AddSingleton<ConfigService>();
 builder.Services.AddSingleton<ApiKeyService>();
 builder.Services.AddSingleton<BackendStatusService>();
 builder.Services.AddSingleton<ConcentradorService>();
-// Banco local (outbox durável de abastecimentos + histórico de status).
+// Banco local (fluxo pull: acumula abastecimentos + histórico de status; backend busca via API).
 builder.Services.AddSingleton<LocalDbService>();
 builder.Services.AddSingleton<PollingService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<PollingService>());
 builder.Services.AddHostedService<StatusPollingService>();
-// Reenvia abastecimentos pendentes (backend fora/reinício) e poda registros antigos.
-builder.Services.AddHostedService<OutboxService>();
+// Poda registros antigos do banco (controle de crescimento + janela de retenção).
+builder.Services.AddHostedService<RetencaoBancoService>();
 // Singleton + hosted: o controller (GET /version) lê o estado do mesmo objeto.
 builder.Services.AddSingleton<UpdateService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<UpdateService>());

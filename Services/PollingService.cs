@@ -8,20 +8,17 @@ public class PollingService : BackgroundService
     private readonly ConcentradorService _concentrador;
     private readonly ILogger<PollingService> _logger;
     private readonly IConfiguration _config;
-    private readonly HttpClient _httpClient;
     private readonly LocalDbService _db;
 
     public PollingService(
         ConcentradorService concentrador,
         ILogger<PollingService> logger,
         IConfiguration config,
-        IHttpClientFactory httpClientFactory,
         LocalDbService db)
     {
         _concentrador = concentrador;
         _logger = logger;
         _config = config;
-        _httpClient = httpClientFactory.CreateClient("Backend");
         _db = db;
     }
 
@@ -61,7 +58,7 @@ public class PollingService : BackgroundService
                 }
 
                 if (_concentrador.IsConnected)
-                    await VerificarAbastecimento(stoppingToken);
+                    VerificarAbastecimento();
             }
             catch (Exception ex)
             {
@@ -74,21 +71,30 @@ public class PollingService : BackgroundService
         _concentrador.Desconectar();
     }
 
-    private async Task VerificarAbastecimento(CancellationToken ct)
+    private void VerificarAbastecimento()
     {
         // LerEIncrementar: C_GetSale + C_NextSale atomicamente na thread DLL.
         // Retorna Vazio=true quando não há abastecimento pendente.
         var resp = _concentrador.LerEIncrementar();
         if (resp.Vazio) return;
 
+        // Resíduo de memória: o registro só carrega dia/hora/minuto/mês (sem ano — assumido o ano
+        // atual em ConcentradorService.ParseGetSale), então um registro com mais de 1 dia é lixo
+        // do buffer e não vale gravar no banco de busca. O ponteiro já avançou (LerEIncrementar).
+        if (resp.Ts is { } ts && ts < DateTime.Now.AddDays(-1))
+        {
+            _logger.LogWarning(
+                "Abastecimento com data {Ts} tem mais de 1 dia — descartado como resíduo (bico={Bico})",
+                ts, resp.Bico);
+            return;
+        }
+
         _logger.LogInformation(
             "Abastecimento: bico={Bico} total={Total} litros={Vol} data={Ts} raw={Raw}",
             resp.Bico, resp.ValorTotal, resp.Volume, resp.Ts, resp.Raw);
 
-        // Grava no outbox ANTES de enviar. Como o ponteiro do concentrador já avançou
-        // (C_NextSale), esta é a única cópia da venda — se o processo cair ou o backend
-        // estiver fora, o OutboxService reenvia a partir daqui.
-        var reg = new AbastecimentoRegistroDb
+        // Fluxo pull: só grava no banco. O backend busca via API (bico + horário) quando precisar.
+        _db.InserirAbastecimento(new AbastecimentoRegistroDb
         {
             Bico = resp.Bico,
             Volume = resp.Volume,
@@ -97,35 +103,6 @@ public class PollingService : BackgroundService
             Ts = resp.Ts,
             Raw = resp.Raw,
             CriadoEm = DateTime.Now,
-            Status = EntregaStatus.Pendente,
-        };
-
-        // Não envia abastecimentos antigos (> 1 dia). O registro só carrega dia/hora/minuto/mês
-        // (sem ano — assumido o ano atual em ConcentradorService.ParseGetSale), então um registro
-        // com mais de 24h é resíduo de memória e não deve gerar webhook no backend.
-        if (resp.Ts is { } ts && ts < DateTime.Now.AddDays(-1))
-        {
-            _logger.LogWarning(
-                "Abastecimento com data {Ts} tem mais de 1 dia — não enviado ao backend (bico={Bico})",
-                ts, resp.Bico);
-            reg.Status = EntregaStatus.Ignorado;
-            reg.UltimoErro = "descartado: mais de 1 dia";
-        }
-
-        _db.InserirAbastecimento(reg);
-        if (reg.Status != EntregaStatus.Pendente) return;
-
-        reg.Tentativas++;
-        var (ok, erro) = await BackendEnvio.EnviarAbastecimentoAsync(_httpClient, _config, resp.Raw, _logger, ct);
-        if (ok)
-        {
-            reg.Status = EntregaStatus.Entregue;
-            reg.EntregueEm = DateTime.Now;
-        }
-        else
-        {
-            reg.UltimoErro = erro;
-        }
-        _db.AtualizarAbastecimento(reg);
+        });
     }
 }

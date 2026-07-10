@@ -373,27 +373,39 @@ public class ConcentradorController : ControllerBase
         }
     }
 
-    // ===== Histórico persistido (banco local) =====
+    // ===== Banco local (fluxo pull: backend busca aqui em vez de receber webhook) =====
 
-    // Abastecimentos gravados no outbox. status opcional: pendente|entregue|ignorado.
-    // limite limitado a 500 para não estourar a resposta.
+    // Abastecimentos recentes gravados no banco. Consulta geral (painel / visão rápida).
+    // Para localizar uma venda específica, use GET abastecimentos/buscar.
     [HttpGet("abastecimentos")]
-    public IActionResult Abastecimentos([FromQuery] string? status, [FromQuery] int limite = 100)
+    public IActionResult Abastecimentos([FromQuery] int limite = 100)
     {
-        EntregaStatus? filtro;
-        switch (status?.Trim().ToLowerInvariant())
-        {
-            case null or "" or "todos": filtro = null; break;
-            case "pendente": filtro = EntregaStatus.Pendente; break;
-            case "entregue": filtro = EntregaStatus.Entregue; break;
-            case "ignorado": filtro = EntregaStatus.Ignorado; break;
-            default: return BadRequest(new { erro = "status inválido (use: pendente, entregue, ignorado)" });
-        }
-
         var lim = Math.Clamp(limite, 1, 500);
-        var itens = _db.ListarAbastecimentos(filtro, lim);
-        var (pendentes, entregues, ignorados) = _db.ContarAbastecimentos();
-        return Ok(new { total = itens.Count, resumo = new { pendentes, entregues, ignorados }, itens });
+        var itens = _db.ListarAbastecimentos(lim);
+        return Ok(new { total = itens.Count, armazenados = _db.ContarAbastecimentos(), itens });
+    }
+
+    // Busca no banco local por bico e/ou horário aproximado (± toleranciaMin) e/ou litros
+    // (± toleranciaLitros). É o endpoint que o backend chama para localizar uma venda:
+    //   GET abastecimentos/buscar?bico=0D&data=2026-07-10T12:05&toleranciaMin=5
+    // Todos os filtros são opcionais; sem nenhum, devolve os mais recentes (até 'limite').
+    [HttpGet("abastecimentos/buscar")]
+    public IActionResult BuscarAbastecimentosDb(
+        [FromQuery] string? bico,
+        [FromQuery] DateTime? data,
+        [FromQuery] int toleranciaMin = 5,
+        [FromQuery] decimal? litros = null,
+        [FromQuery] decimal toleranciaLitros = 0.5m,
+        [FromQuery] int limite = 50)
+    {
+        var lim = Math.Clamp(limite, 1, 500);
+        var itens = _db.BuscarAbastecimentos(bico, data, toleranciaMin, litros, toleranciaLitros, lim);
+        return Ok(new
+        {
+            total = itens.Count,
+            criterios = new { bico, data, toleranciaMin, litros, toleranciaLitros, limite = lim },
+            itens
+        });
     }
 
     // Histórico de mudanças de status das bombas. Rota distinta de GET status (leitura ao vivo).

@@ -20,7 +20,7 @@ public class LocalDbService : IDisposable
         _db = new LiteDatabase($"Filename={caminho}");
 
         _abastecimentos = _db.GetCollection<AbastecimentoRegistroDb>("abastecimentos");
-        _abastecimentos.EnsureIndex(x => x.Status);
+        _abastecimentos.EnsureIndex(x => x.Bico);
         _abastecimentos.EnsureIndex(x => x.CriadoEm);
 
         _status = _db.GetCollection<StatusRegistroDb>("status");
@@ -31,30 +31,42 @@ public class LocalDbService : IDisposable
 
     public void InserirAbastecimento(AbastecimentoRegistroDb reg) => _abastecimentos.Insert(reg);
 
-    public void AtualizarAbastecimento(AbastecimentoRegistroDb reg) => _abastecimentos.Update(reg);
+    // Lista abastecimentos mais recentes primeiro (painel / consulta geral).
+    public List<AbastecimentoRegistroDb> ListarAbastecimentos(int max) =>
+        _abastecimentos.Query().OrderByDescending(x => x.CriadoEm).Limit(max).ToList();
 
-    // Pendentes mais antigos primeiro (ordem de chegada) — mantém a fila FIFO no reenvio.
-    public List<AbastecimentoRegistroDb> ListarPendentes(int max) =>
-        _abastecimentos.Query()
-            .Where(x => x.Status == EntregaStatus.Pendente)
-            .OrderBy(x => x.CriadoEm)
-            .Limit(max)
-            .ToList();
+    public int ContarAbastecimentos() => _abastecimentos.Count();
 
-    // Lista abastecimentos mais recentes primeiro (para exibir no painel), opcionalmente
-    // filtrando por status de entrega. null = todos.
-    public List<AbastecimentoRegistroDb> ListarAbastecimentos(EntregaStatus? status, int max)
+    // Busca abastecimentos por bico e/ou janela de tempo (± toleranciaMin) e/ou litros
+    // (± toleranciaLitros). Mesma semântica do ConcentradorService.BuscarAbastecimento, mas
+    // contra o banco local em vez da memória do concentrador. Filtros null são ignorados.
+    // O bico narrowa na query (indexado); tempo/litros filtram em memória (base pequena).
+    public List<AbastecimentoRegistroDb> BuscarAbastecimentos(
+        string? bico,
+        DateTime? quando,
+        int toleranciaMin,
+        decimal? litros,
+        decimal toleranciaLitros,
+        int max)
     {
         var q = _abastecimentos.Query();
-        if (status is { } s) q = q.Where(x => x.Status == s);
-        return q.OrderByDescending(x => x.CriadoEm).Limit(max).ToList();
-    }
+        if (!string.IsNullOrWhiteSpace(bico))
+        {
+            var alvo = bico.Trim().ToUpperInvariant().PadLeft(2, '0');
+            q = q.Where(x => x.Bico == alvo);
+        }
 
-    // Quantos abastecimentos existem por status — usado no resumo do painel.
-    public (int pendentes, int entregues, int ignorados) ContarAbastecimentos() => (
-        _abastecimentos.Count(x => x.Status == EntregaStatus.Pendente),
-        _abastecimentos.Count(x => x.Status == EntregaStatus.Entregue),
-        _abastecimentos.Count(x => x.Status == EntregaStatus.Ignorado));
+        IEnumerable<AbastecimentoRegistroDb> itens = q.OrderByDescending(x => x.CriadoEm).ToList();
+
+        if (quando is { } alvoTs)
+            itens = itens.Where(x => x.Ts is { } ts
+                && Math.Abs((ts - alvoTs).TotalMinutes) <= toleranciaMin);
+
+        if (litros is { } alvoL)
+            itens = itens.Where(x => Math.Abs(x.Volume - alvoL) <= toleranciaLitros);
+
+        return itens.Take(max).ToList();
+    }
 
     public List<StatusRegistroDb> ListarStatus(int max) =>
         _status.Query().OrderByDescending(x => x.CriadoEm).Limit(max).ToList();
@@ -67,12 +79,12 @@ public class LocalDbService : IDisposable
             CriadoEm = DateTime.Now,
         });
 
-    // Poda o que já saiu da fila (Entregue/Ignorado) e o histórico de status mais velhos que
-    // o limite. Pendentes de abastecimento são preservados sempre — a durabilidade depende disso.
+    // Poda por idade: no fluxo pull não há mais "entrega", então todo registro (abastecimento
+    // e status) mais velho que a janela de retenção é removido. A janela define até quando o
+    // backend consegue buscar uma venda passada — ver Banco:RetencaoMinutos.
     public int PodarAntigos(DateTime limite)
     {
-        var removidosAbast = _abastecimentos.DeleteMany(x =>
-            x.Status != EntregaStatus.Pendente && x.CriadoEm < limite);
+        var removidosAbast = _abastecimentos.DeleteMany(x => x.CriadoEm < limite);
         var removidosStatus = _status.DeleteMany(x => x.CriadoEm < limite);
         return removidosAbast + removidosStatus;
     }

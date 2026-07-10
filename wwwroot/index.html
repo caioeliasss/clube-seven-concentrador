@@ -167,27 +167,41 @@
 
     <div class="card">
       <div class="card-head">
-        <h2>Histórico de abastecimentos</h2>
-        <div class="row" style="align-items:center;">
-          <select id="abastFiltro" class="compact">
-            <option value="">Todos</option>
-            <option value="pendente">Pendentes</option>
-            <option value="entregue">Entregues</option>
-            <option value="ignorado">Ignorados</option>
-          </select>
-          <button class="btn secondary compact" id="btnAbastRefresh">Atualizar</button>
+        <h2>Abastecimentos (banco local)</h2>
+        <span class="badge"><span id="abastCount">—</span> armazenados</span>
+      </div>
+      <div class="grid">
+        <div>
+          <label for="buscaBico">Bico</label>
+          <input id="buscaBico" placeholder="ex.: 0D" />
+        </div>
+        <div>
+          <label for="buscaData">Horário (aprox.)</label>
+          <input id="buscaData" type="datetime-local" />
+        </div>
+        <div>
+          <label for="buscaTolMin">Tolerância (min)</label>
+          <input id="buscaTolMin" inputmode="numeric" value="5" />
+        </div>
+        <div>
+          <label for="buscaLitros">Litros (opcional)</label>
+          <input id="buscaLitros" inputmode="decimal" placeholder="ex.: 25.30" />
         </div>
       </div>
-      <div class="summary" id="abastResumo"></div>
+      <div class="row" style="margin-top:14px;">
+        <button class="btn compact" id="btnBuscar">Buscar</button>
+        <button class="btn secondary compact" id="btnBuscaLimpar">Limpar / recentes</button>
+      </div>
+      <div class="hint" id="buscaInfo" style="margin-bottom:6px;"></div>
       <div class="tbl-wrap">
         <table class="tbl">
           <thead>
-            <tr><th>Criado</th><th>Bico</th><th>Litros</th><th>Total</th><th>R$/L</th><th>Data venda</th><th>Entrega</th><th>Tent.</th></tr>
+            <tr><th>Gravado</th><th>Bico</th><th>Litros</th><th>Total</th><th>R$/L</th><th>Horário venda</th></tr>
           </thead>
           <tbody id="abastBody"></tbody>
         </table>
       </div>
-      <div class="empty" id="abastEmpty" style="display:none;">Nenhum abastecimento registrado.</div>
+      <div class="empty" id="abastEmpty" style="display:none;">Nenhum abastecimento encontrado.</div>
     </div>
 
     <div class="card">
@@ -367,42 +381,73 @@
     const esc = (s) => String(s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
     const num = (v, casas) => (v == null ? "—" : Number(v).toFixed(casas));
 
-    async function carregarAbastecimentos() {
-      const filtro = $("abastFiltro").value;
-      const url = `${API}/abastecimentos?limite=100${filtro ? "&status=" + filtro : ""}`;
+    // true enquanto uma busca está aplicada — evita que o refresh automático de "recentes"
+    // sobrescreva o resultado da busca do operador.
+    let buscaAtiva = false;
+
+    function renderAbast(itens, info) {
+      $("buscaInfo").textContent = info || "";
+      $("abastEmpty").style.display = itens.length ? "none" : "block";
+      $("abastBody").innerHTML = itens.map((it) => `<tr>
+        <td>${fmtData(it.criadoEm)}</td>
+        <td>${esc(it.bico)}</td>
+        <td>${num(it.volume, 2)}</td>
+        <td>${num(it.valorTotal, 2)}</td>
+        <td>${num(it.valorPorLitro, 3)}</td>
+        <td>${fmtData(it.ts)}</td>
+      </tr>`).join("");
+    }
+
+    function trataAuth(r) {
+      if (r.status === 401) {
+        $("abastBody").innerHTML = "";
+        $("abastEmpty").textContent = "Informe o Token acima para ver os abastecimentos.";
+        $("abastEmpty").style.display = "block";
+        return false;
+      }
+      return true;
+    }
+
+    // Recentes (GET /abastecimentos). Roda ao abrir e no refresh periódico, exceto com busca ativa.
+    async function carregarRecentes() {
       try {
-        const r = await fetch(url, { headers: headers(false) });
-        if (r.status === 401) { // sem login: distingue de "sem dados" p/ não parecer que não salvou
-          $("abastResumo").innerHTML = "";
-          $("abastBody").innerHTML = "";
-          $("abastEmpty").textContent = "Informe o Token acima para ver o histórico salvo.";
-          $("abastEmpty").style.display = "block";
-          return;
-        }
-        if (!r.ok) return; // outros erros: silencioso (leitura de fundo)
+        const r = await fetch(`${API}/abastecimentos?limite=100`, { headers: headers(false) });
+        if (!trataAuth(r)) return;
+        if (!r.ok) return;
         const j = await r.json();
+        $("abastCount").textContent = j.armazenados ?? (j.itens || []).length;
+        if (buscaAtiva) return; // não mexe na tabela se o operador está vendo uma busca
         $("abastEmpty").textContent = "Nenhum abastecimento registrado.";
-        const res = j.resumo || {};
-        $("abastResumo").innerHTML =
-          `<span>Pendentes: <b>${res.pendentes ?? 0}</b></span>` +
-          `<span>Entregues: <b>${res.entregues ?? 0}</b></span>` +
-          `<span>Ignorados: <b>${res.ignorados ?? 0}</b></span>`;
-        const itens = j.itens || [];
-        $("abastEmpty").style.display = itens.length ? "none" : "block";
-        $("abastBody").innerHTML = itens.map((it) => {
-          const st = String(it.status).toLowerCase();
-          return `<tr>
-            <td>${fmtData(it.criadoEm)}</td>
-            <td>${esc(it.bico)}</td>
-            <td>${num(it.volume, 2)}</td>
-            <td>${num(it.valorTotal, 2)}</td>
-            <td>${num(it.valorPorLitro, 3)}</td>
-            <td>${fmtData(it.ts)}</td>
-            <td><span class="pill ${st}">${esc(it.status)}</span></td>
-            <td>${it.tentativas ?? 0}</td>
-          </tr>`;
-        }).join("");
+        renderAbast(j.itens || [], "");
       } catch { /* silencioso */ }
+    }
+
+    // Busca (GET /abastecimentos/buscar) — bico + horário aprox. + litros opcional.
+    async function buscarAbastecimentos() {
+      const bico = $("buscaBico").value.trim();
+      const data = $("buscaData").value; // "YYYY-MM-DDTHH:mm" (hora local) ou ""
+      const tol = $("buscaTolMin").value.trim() || "5";
+      const litros = $("buscaLitros").value.trim();
+      const qs = new URLSearchParams({ limite: "100", toleranciaMin: tol });
+      if (bico) qs.set("bico", bico);
+      if (data) qs.set("data", data);
+      if (litros) qs.set("litros", litros);
+      try {
+        const r = await fetch(`${API}/abastecimentos/buscar?${qs}`, { headers: headers(false) });
+        if (!trataAuth(r)) return;
+        if (!r.ok) { toast("Falha na busca", false); return; }
+        const j = await r.json();
+        buscaAtiva = true;
+        $("abastEmpty").textContent = "Nenhum abastecimento encontrado para os critérios.";
+        renderAbast(j.itens || [], `${j.total} resultado(s) — critérios aplicados`);
+      } catch { toast("Falha na busca", false); }
+    }
+
+    function limparBusca() {
+      buscaAtiva = false;
+      $("buscaBico").value = ""; $("buscaData").value = ""; $("buscaLitros").value = "";
+      $("buscaTolMin").value = "5";
+      carregarRecentes();
     }
 
     async function carregarStatusHist() {
@@ -425,8 +470,8 @@
       } catch { /* silencioso */ }
     }
 
-    $("btnAbastRefresh").onclick = carregarAbastecimentos;
-    $("abastFiltro").onchange = carregarAbastecimentos;
+    $("btnBuscar").onclick = buscarAbastecimentos;
+    $("btnBuscaLimpar").onclick = limparBusca;
     $("btnStatusRefresh").onclick = carregarStatusHist;
 
     $("btnSalvar").onclick = salvar;
@@ -442,11 +487,11 @@
 
     carregar();
 
-    // Histórico: carrega ao abrir e atualiza periodicamente (pendentes mudam quando o
-    // OutboxService reenvia; status ganha linhas conforme as bombas mudam de estado).
-    function carregarHistorico() { carregarAbastecimentos(); carregarStatusHist(); }
-    carregarHistorico();
-    setInterval(carregarHistorico, 10000);
+    // Banco local: recentes + histórico de status ao abrir e a cada 10s. Com busca ativa,
+    // carregarRecentes só atualiza o contador (não mexe na tabela de resultados).
+    function atualizarBanco() { carregarRecentes(); carregarStatusHist(); }
+    atualizarBanco();
+    setInterval(atualizarBanco, 10000);
   </script>
 </body>
 </html>
