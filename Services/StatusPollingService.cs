@@ -11,6 +11,7 @@ public class StatusPollingService : BackgroundService
     private readonly ILogger<StatusPollingService> _logger;
     private readonly IConfiguration _config;
     private readonly HttpClient _httpClient;
+    private readonly LocalDbService _db;
 
     private string? _ultimoStatus;
 
@@ -18,12 +19,14 @@ public class StatusPollingService : BackgroundService
         ConcentradorService concentrador,
         ILogger<StatusPollingService> logger,
         IConfiguration config,
-        IHttpClientFactory httpClientFactory)
+        IHttpClientFactory httpClientFactory,
+        LocalDbService db)
     {
         _concentrador = concentrador;
         _logger = logger;
         _config = config;
         _httpClient = httpClientFactory.CreateClient("Backend");
+        _db = db;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -83,6 +86,12 @@ public class StatusPollingService : BackgroundService
 
         _ultimoStatus = chave;
         _logger.LogInformation("Status mudou: {Status}", status);
+
+        // Histórico local para auditoria/consulta. Status é snapshot, não outbox — só registramos
+        // a mudança; o envio abaixo segue como antes (não há reenvio de snapshot antigo).
+        try { _db.InserirStatus(chave, status); }
+        catch (Exception ex) { _logger.LogError(ex, "Falha ao gravar histórico de status no banco"); }
+
         await EnviarParaBackend(status, ct);
     }
 

@@ -1,5 +1,4 @@
-using System.Text;
-using System.Text.Json;
+using SevenConcentradorBridge.Models;
 using SevenConcentradorBridge.Services;
 
 namespace SevenConcentradorBridge.Services;
@@ -10,17 +9,20 @@ public class PollingService : BackgroundService
     private readonly ILogger<PollingService> _logger;
     private readonly IConfiguration _config;
     private readonly HttpClient _httpClient;
+    private readonly LocalDbService _db;
 
     public PollingService(
         ConcentradorService concentrador,
         ILogger<PollingService> logger,
         IConfiguration config,
-        IHttpClientFactory httpClientFactory)
+        IHttpClientFactory httpClientFactory,
+        LocalDbService db)
     {
         _concentrador = concentrador;
         _logger = logger;
         _config = config;
         _httpClient = httpClientFactory.CreateClient("Backend");
+        _db = db;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -59,7 +61,7 @@ public class PollingService : BackgroundService
                 }
 
                 if (_concentrador.IsConnected)
-                    await VerificarAbastecimento();
+                    await VerificarAbastecimento(stoppingToken);
             }
             catch (Exception ex)
             {
@@ -72,7 +74,7 @@ public class PollingService : BackgroundService
         _concentrador.Desconectar();
     }
 
-    private async Task VerificarAbastecimento()
+    private async Task VerificarAbastecimento(CancellationToken ct)
     {
         // LerEIncrementar: C_GetSale + C_NextSale atomicamente na thread DLL.
         // Retorna Vazio=true quando não há abastecimento pendente.
@@ -83,6 +85,21 @@ public class PollingService : BackgroundService
             "Abastecimento: bico={Bico} total={Total} litros={Vol} data={Ts} raw={Raw}",
             resp.Bico, resp.ValorTotal, resp.Volume, resp.Ts, resp.Raw);
 
+        // Grava no outbox ANTES de enviar. Como o ponteiro do concentrador já avançou
+        // (C_NextSale), esta é a única cópia da venda — se o processo cair ou o backend
+        // estiver fora, o OutboxService reenvia a partir daqui.
+        var reg = new AbastecimentoRegistroDb
+        {
+            Bico = resp.Bico,
+            Volume = resp.Volume,
+            ValorTotal = resp.ValorTotal,
+            ValorPorLitro = resp.ValorPorLitro,
+            Ts = resp.Ts,
+            Raw = resp.Raw,
+            CriadoEm = DateTime.Now,
+            Status = EntregaStatus.Pendente,
+        };
+
         // Não envia abastecimentos antigos (> 1 dia). O registro só carrega dia/hora/minuto/mês
         // (sem ano — assumido o ano atual em ConcentradorService.ParseGetSale), então um registro
         // com mais de 24h é resíduo de memória e não deve gerar webhook no backend.
@@ -91,51 +108,24 @@ public class PollingService : BackgroundService
             _logger.LogWarning(
                 "Abastecimento com data {Ts} tem mais de 1 dia — não enviado ao backend (bico={Bico})",
                 ts, resp.Bico);
-            return;
+            reg.Status = EntregaStatus.Ignorado;
+            reg.UltimoErro = "descartado: mais de 1 dia";
         }
 
-        await EnviarParaBackend(resp.Raw);
-    }
+        _db.InserirAbastecimento(reg);
+        if (reg.Status != EntregaStatus.Pendente) return;
 
-    private async Task EnviarParaBackend(string respostaRaw)
-    {
-        // Fonte preferida: appsettings Backend:* (editável pelo painel, hot-reload).
-        // Fallback: API_URL/TOKEN do .env (compatibilidade).
-        var apiUrl = (_config["Backend:WebhookUrl"] ?? _config["API_URL"] ?? "").TrimEnd('/');
-        var token = _config["Backend:ApiKey"] ?? _config["TOKEN"] ?? "";
-
-        if (string.IsNullOrEmpty(apiUrl))
+        reg.Tentativas++;
+        var (ok, erro) = await BackendEnvio.EnviarAbastecimentoAsync(_httpClient, _config, resp.Raw, _logger, ct);
+        if (ok)
         {
-            _logger.LogWarning("Backend:WebhookUrl/API_URL não configurada — abastecimento não enviado");
-            return;
+            reg.Status = EntregaStatus.Entregue;
+            reg.EntregueEm = DateTime.Now;
         }
-
-        var url = $"{apiUrl}/api/concentrador";
-        var body = JsonSerializer.Serialize(new
+        else
         {
-            comandoRaw = "C_GetSale",
-            respostaRaw,
-        });
-
-        var request = new HttpRequestMessage(HttpMethod.Post, url)
-        {
-            Content = new StringContent(body, Encoding.UTF8, "application/json"),
-        };
-
-        if (!string.IsNullOrEmpty(token))
-            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
-
-        try
-        {
-            var response = await _httpClient.SendAsync(request);
-            if (response.IsSuccessStatusCode)
-                _logger.LogInformation("Abastecimento enviado ao backend");
-            else
-                _logger.LogError("Backend retornou {Status} para abastecimento — URL: {Url}", response.StatusCode, url);
+            reg.UltimoErro = erro;
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Falha ao enviar abastecimento para {Url}", url);
-        }
+        _db.AtualizarAbastecimento(reg);
     }
 }

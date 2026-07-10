@@ -37,4 +37,26 @@ public static class AppPaths
         }
         return dest;
     }
+
+    // Caminho do banco local (LiteDB). Mesma lógica de gravabilidade do appsettings:
+    // em prod vive em C:\ProgramData\ClubeSevenBridge\ (gravável sem admin); em dev, na pasta
+    // do projeto. Pode ser sobreposto por Banco:Arquivo (caminho absoluto) no appsettings.
+    public static string CaminhoBanco(IHostEnvironment env, IConfiguration config)
+    {
+        var custom = config["Banco:Arquivo"];
+        if (!string.IsNullOrWhiteSpace(custom))
+        {
+            var dirCustom = Path.GetDirectoryName(Path.GetFullPath(custom));
+            if (!string.IsNullOrEmpty(dirCustom)) Directory.CreateDirectory(dirCustom);
+            return custom;
+        }
+
+        var dir = env.IsDevelopment()
+            ? env.ContentRootPath
+            : Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                "ClubeSevenBridge");
+        Directory.CreateDirectory(dir);
+        return Path.Combine(dir, "dados.db");
+    }
 }

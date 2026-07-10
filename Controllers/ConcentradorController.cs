@@ -15,6 +15,7 @@ public class ConcentradorController : ControllerBase
     private readonly ApiKeyService _apiKey;
     private readonly BackendStatusService _backendStatus;
     private readonly UpdateService _update;
+    private readonly LocalDbService _db;
     private readonly ILogger<ConcentradorController> _logger;
 
     public ConcentradorController(
@@ -24,6 +25,7 @@ public class ConcentradorController : ControllerBase
         ApiKeyService apiKey,
         BackendStatusService backendStatus,
         UpdateService update,
+        LocalDbService db,
         ILogger<ConcentradorController> logger)
     {
         _concentrador = concentrador;
@@ -32,6 +34,7 @@ public class ConcentradorController : ControllerBase
         _apiKey = apiKey;
         _backendStatus = backendStatus;
         _update = update;
+        _db = db;
         _logger = logger;
     }
 
@@ -368,6 +371,38 @@ public class ConcentradorController : ControllerBase
         {
             return StatusCode(503, new { erro = ex.Message });
         }
+    }
+
+    // ===== Histórico persistido (banco local) =====
+
+    // Abastecimentos gravados no outbox. status opcional: pendente|entregue|ignorado.
+    // limite limitado a 500 para não estourar a resposta.
+    [HttpGet("abastecimentos")]
+    public IActionResult Abastecimentos([FromQuery] string? status, [FromQuery] int limite = 100)
+    {
+        EntregaStatus? filtro;
+        switch (status?.Trim().ToLowerInvariant())
+        {
+            case null or "" or "todos": filtro = null; break;
+            case "pendente": filtro = EntregaStatus.Pendente; break;
+            case "entregue": filtro = EntregaStatus.Entregue; break;
+            case "ignorado": filtro = EntregaStatus.Ignorado; break;
+            default: return BadRequest(new { erro = "status inválido (use: pendente, entregue, ignorado)" });
+        }
+
+        var lim = Math.Clamp(limite, 1, 500);
+        var itens = _db.ListarAbastecimentos(filtro, lim);
+        var (pendentes, entregues, ignorados) = _db.ContarAbastecimentos();
+        return Ok(new { total = itens.Count, resumo = new { pendentes, entregues, ignorados }, itens });
+    }
+
+    // Histórico de mudanças de status das bombas. Rota distinta de GET status (leitura ao vivo).
+    [HttpGet("status/historico")]
+    public IActionResult StatusHistorico([FromQuery] int limite = 100)
+    {
+        var lim = Math.Clamp(limite, 1, 500);
+        var itens = _db.ListarStatus(lim);
+        return Ok(new { total = itens.Count, itens });
     }
 
     [HttpGet("health")]

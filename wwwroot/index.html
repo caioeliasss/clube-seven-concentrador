@@ -61,6 +61,20 @@
     .toast.ok { background: var(--ok); color: #052e16; }
     .toast.bad { background: var(--bad); color: #450a0a; }
     .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
+    .tbl-wrap { overflow-x: auto; }
+    table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+    table.tbl th, table.tbl td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    table.tbl th { color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: 11px; letter-spacing: .04em; }
+    table.tbl td.raw { font-family: ui-monospace, Menlo, Consolas, monospace; color: var(--muted); max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+    table.tbl tr:last-child td { border-bottom: none; }
+    .empty { color: var(--muted); font-size: 13px; padding: 12px 0; }
+    .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+    .pill.pendente { background: rgba(245,158,11,.15); color: var(--warn); }
+    .pill.entregue { background: rgba(34,197,94,.15); color: var(--ok); }
+    .pill.ignorado { background: rgba(148,163,184,.15); color: var(--muted); }
+    .summary { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; margin-bottom: 14px; }
+    .summary b { color: var(--fg); }
+    select.compact, .btn.compact { padding: 6px 12px; font-size: 13px; width: auto; }
   </style>
 </head>
 <body>
@@ -149,6 +163,47 @@
         <button class="btn secondary" id="btnRecarregar">Recarregar</button>
         <button class="btn danger" id="btnReiniciar">Reiniciar p/ aplicar</button>
       </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2>Histórico de abastecimentos</h2>
+        <div class="row" style="align-items:center;">
+          <select id="abastFiltro" class="compact">
+            <option value="">Todos</option>
+            <option value="pendente">Pendentes</option>
+            <option value="entregue">Entregues</option>
+            <option value="ignorado">Ignorados</option>
+          </select>
+          <button class="btn secondary compact" id="btnAbastRefresh">Atualizar</button>
+        </div>
+      </div>
+      <div class="summary" id="abastResumo"></div>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead>
+            <tr><th>Criado</th><th>Bico</th><th>Litros</th><th>Total</th><th>R$/L</th><th>Data venda</th><th>Entrega</th><th>Tent.</th></tr>
+          </thead>
+          <tbody id="abastBody"></tbody>
+        </table>
+      </div>
+      <div class="empty" id="abastEmpty" style="display:none;">Nenhum abastecimento registrado.</div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2>Histórico de status</h2>
+        <button class="btn secondary compact" id="btnStatusRefresh">Atualizar</button>
+      </div>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead>
+            <tr><th>Registrado</th><th>Status</th></tr>
+          </thead>
+          <tbody id="statusBody"></tbody>
+        </table>
+      </div>
+      <div class="empty" id="statusEmpty" style="display:none;">Nenhuma mudança de status registrada.</div>
     </div>
   </main>
 
@@ -303,6 +358,77 @@
       }
     }
 
+    // --- Histórico persistido (banco local) ---
+    const fmtData = (s) => {
+      if (!s) return "—";
+      const d = new Date(s);
+      return isNaN(d) ? s : d.toLocaleString("pt-BR");
+    };
+    const esc = (s) => String(s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+    const num = (v, casas) => (v == null ? "—" : Number(v).toFixed(casas));
+
+    async function carregarAbastecimentos() {
+      const filtro = $("abastFiltro").value;
+      const url = `${API}/abastecimentos?limite=100${filtro ? "&status=" + filtro : ""}`;
+      try {
+        const r = await fetch(url, { headers: headers(false) });
+        if (r.status === 401) { // sem login: distingue de "sem dados" p/ não parecer que não salvou
+          $("abastResumo").innerHTML = "";
+          $("abastBody").innerHTML = "";
+          $("abastEmpty").textContent = "Informe o Token acima para ver o histórico salvo.";
+          $("abastEmpty").style.display = "block";
+          return;
+        }
+        if (!r.ok) return; // outros erros: silencioso (leitura de fundo)
+        const j = await r.json();
+        $("abastEmpty").textContent = "Nenhum abastecimento registrado.";
+        const res = j.resumo || {};
+        $("abastResumo").innerHTML =
+          `<span>Pendentes: <b>${res.pendentes ?? 0}</b></span>` +
+          `<span>Entregues: <b>${res.entregues ?? 0}</b></span>` +
+          `<span>Ignorados: <b>${res.ignorados ?? 0}</b></span>`;
+        const itens = j.itens || [];
+        $("abastEmpty").style.display = itens.length ? "none" : "block";
+        $("abastBody").innerHTML = itens.map((it) => {
+          const st = String(it.status).toLowerCase();
+          return `<tr>
+            <td>${fmtData(it.criadoEm)}</td>
+            <td>${esc(it.bico)}</td>
+            <td>${num(it.volume, 2)}</td>
+            <td>${num(it.valorTotal, 2)}</td>
+            <td>${num(it.valorPorLitro, 3)}</td>
+            <td>${fmtData(it.ts)}</td>
+            <td><span class="pill ${st}">${esc(it.status)}</span></td>
+            <td>${it.tentativas ?? 0}</td>
+          </tr>`;
+        }).join("");
+      } catch { /* silencioso */ }
+    }
+
+    async function carregarStatusHist() {
+      try {
+        const r = await fetch(`${API}/status/historico?limite=100`, { headers: headers(false) });
+        if (r.status === 401) {
+          $("statusBody").innerHTML = "";
+          $("statusEmpty").textContent = "Informe o Token acima para ver o histórico salvo.";
+          $("statusEmpty").style.display = "block";
+          return;
+        }
+        if (!r.ok) return; // silencioso
+        const j = await r.json();
+        $("statusEmpty").textContent = "Nenhuma mudança de status registrada.";
+        const itens = j.itens || [];
+        $("statusEmpty").style.display = itens.length ? "none" : "block";
+        $("statusBody").innerHTML = itens.map((it) =>
+          `<tr><td>${fmtData(it.criadoEm)}</td><td class="raw" title="${esc(it.statusFull)}">${esc(it.statusFull)}</td></tr>`
+        ).join("");
+      } catch { /* silencioso */ }
+    }
+
+    $("btnAbastRefresh").onclick = carregarAbastecimentos;
+    $("abastFiltro").onchange = carregarAbastecimentos;
+    $("btnStatusRefresh").onclick = carregarStatusHist;
+
     $("btnSalvar").onclick = salvar;
     $("btnRecarregar").onclick = carregar;
     $("btnVerificarBackend").onclick = verificarESalvarBackend;
@@ -315,6 +441,12 @@
     };
 
     carregar();
+
+    // Histórico: carrega ao abrir e atualiza periodicamente (pendentes mudam quando o
+    // OutboxService reenvia; status ganha linhas conforme as bombas mudam de estado).
+    function carregarHistorico() { carregarAbastecimentos(); carregarStatusHist(); }
+    carregarHistorico();
+    setInterval(carregarHistorico, 10000);
   </script>
 </body>
 </html>

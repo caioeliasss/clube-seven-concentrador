@@ -6,3 +6,5 @@ obj
 clube-seven-concentrador-v0.0/
 dist/
 installer/
+dados.db
+dados-log.db
