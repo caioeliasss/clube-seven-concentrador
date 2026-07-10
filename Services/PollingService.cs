@@ -80,8 +80,19 @@ public class PollingService : BackgroundService
         if (resp.Vazio) return;
 
         _logger.LogInformation(
-            "Abastecimento: bico={Bico} total={Total} litros={Vol} raw={Raw}",
-            resp.Bico, resp.ValorTotal, resp.Volume, resp.Raw);
+            "Abastecimento: bico={Bico} total={Total} litros={Vol} data={Ts} raw={Raw}",
+            resp.Bico, resp.ValorTotal, resp.Volume, resp.Ts, resp.Raw);
+
+        // Não envia abastecimentos antigos (> 1 dia). O registro só carrega dia/hora/minuto/mês
+        // (sem ano — assumido o ano atual em ConcentradorService.ParseGetSale), então um registro
+        // com mais de 24h é resíduo de memória e não deve gerar webhook no backend.
+        if (resp.Ts is { } ts && ts < DateTime.Now.AddDays(-1))
+        {
+            _logger.LogWarning(
+                "Abastecimento com data {Ts} tem mais de 1 dia — não enviado ao backend (bico={Bico})",
+                ts, resp.Bico);
+            return;
+        }
 
         await EnviarParaBackend(resp.Raw);
     }
