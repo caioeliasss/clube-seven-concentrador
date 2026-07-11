@@ -1,3 +1,6 @@
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
 using SevenConcentradorBridge.Models;
 using SevenConcentradorBridge.Services;
 
@@ -9,17 +12,20 @@ public class PollingService : BackgroundService
     private readonly ILogger<PollingService> _logger;
     private readonly IConfiguration _config;
     private readonly LocalDbService _db;
+    private readonly HttpClient _httpClient;
 
     public PollingService(
         ConcentradorService concentrador,
         ILogger<PollingService> logger,
         IConfiguration config,
-        LocalDbService db)
+        LocalDbService db,
+        IHttpClientFactory httpClientFactory)
     {
         _concentrador = concentrador;
         _logger = logger;
         _config = config;
         _db = db;
+        _httpClient = httpClientFactory.CreateClient("Backend");
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -58,7 +64,7 @@ public class PollingService : BackgroundService
                 }
 
                 if (_concentrador.IsConnected)
-                    VerificarAbastecimento();
+                    await VerificarAbastecimento();
             }
             catch (Exception ex)
             {
@@ -71,7 +77,7 @@ public class PollingService : BackgroundService
         _concentrador.Desconectar();
     }
 
-    private void VerificarAbastecimento()
+    private async Task VerificarAbastecimento()
     {
         // LerEIncrementar: C_GetSale + C_NextSale atomicamente na thread DLL.
         // Retorna Vazio=true quando não há abastecimento pendente.
@@ -81,6 +87,7 @@ public class PollingService : BackgroundService
         // Resíduo de memória: o registro só carrega dia/hora/minuto/mês (sem ano — assumido o ano
         // atual em ConcentradorService.ParseGetSale), então um registro com mais de 1 dia é lixo
         // do buffer e não vale gravar no banco de busca. O ponteiro já avançou (LerEIncrementar).
+        // Também não é enviado ao backend (resíduo antigo não vira venda).
         if (resp.Ts is { } ts && ts < DateTime.Now.AddDays(-1))
         {
             _logger.LogWarning(
@@ -93,7 +100,7 @@ public class PollingService : BackgroundService
             "Abastecimento: bico={Bico} total={Total} litros={Vol} data={Ts} raw={Raw}",
             resp.Bico, resp.ValorTotal, resp.Volume, resp.Ts, resp.Raw);
 
-        // Fluxo pull: só grava no banco. O backend busca via API (bico + horário) quando precisar.
+        // Grava sempre no banco local (fonte de busca por bico + horário)...
         _db.InserirAbastecimento(new AbastecimentoRegistroDb
         {
             Bico = resp.Bico,
@@ -104,5 +111,52 @@ public class PollingService : BackgroundService
             Raw = resp.Raw,
             CriadoEm = DateTime.Now,
         });
+
+        // ...e também envia ao backend. Só chega aqui abastecimento com menos de 24h (o resíduo
+        // antigo já retornou acima), então este é sempre um envio de venda recente.
+        await EnviarParaBackend(resp.Raw);
+    }
+
+    // POST {Backend:WebhookUrl}/api/concentrador com { comandoRaw, respostaRaw } e
+    // Authorization: Bearer <Backend:ApiKey>. Falha de rede não derruba o polling nem
+    // desfaz a gravação local — o backend também pode buscar via API depois.
+    private async Task EnviarParaBackend(string respostaRaw)
+    {
+        var apiUrl = (_config["Backend:WebhookUrl"] ?? "").TrimEnd('/');
+        var token = _config["Backend:ApiKey"] ?? "";
+
+        if (string.IsNullOrEmpty(apiUrl))
+        {
+            _logger.LogWarning("Backend:WebhookUrl não configurada — abastecimento não enviado");
+            return;
+        }
+
+        var url = $"{apiUrl}/api/concentrador";
+        var body = JsonSerializer.Serialize(new
+        {
+            comandoRaw = "C_GetSale",
+            respostaRaw,
+        });
+
+        var request = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = new StringContent(body, Encoding.UTF8, "application/json"),
+        };
+
+        if (!string.IsNullOrEmpty(token))
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        try
+        {
+            var response = await _httpClient.SendAsync(request);
+            if (response.IsSuccessStatusCode)
+                _logger.LogInformation("Abastecimento enviado ao backend");
+            else
+                _logger.LogError("Backend retornou {Status} para abastecimento — URL: {Url}", response.StatusCode, url);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Falha ao enviar abastecimento para {Url}", url);
+        }
     }
 }
