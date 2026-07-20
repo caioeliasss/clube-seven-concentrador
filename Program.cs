@@ -53,6 +53,7 @@ builder.Services.AddHttpClient("Backend");
 builder.Services.AddSingleton<ConfigService>();
 builder.Services.AddSingleton<ApiKeyService>();
 builder.Services.AddSingleton<BackendStatusService>();
+builder.Services.AddSingleton<NotificationService>();
 builder.Services.AddSingleton<ConcentradorService>();
 // Banco local (fluxo pull: acumula abastecimentos + histórico de status; backend busca via API).
 builder.Services.AddSingleton<LocalDbService>();

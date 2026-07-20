@@ -13,19 +13,25 @@ public class PollingService : BackgroundService
     private readonly IConfiguration _config;
     private readonly LocalDbService _db;
     private readonly HttpClient _httpClient;
+    private readonly NotificationService _notificacao;
+
+    // Chave usada no anti-flood do NotificationService para o problema de conexão.
+    private const string ChaveConexao = "conexao";
 
     public PollingService(
         ConcentradorService concentrador,
         ILogger<PollingService> logger,
         IConfiguration config,
         LocalDbService db,
-        IHttpClientFactory httpClientFactory)
+        IHttpClientFactory httpClientFactory,
+        NotificationService notificacao)
     {
         _concentrador = concentrador;
         _logger = logger;
         _config = config;
         _db = db;
         _httpClient = httpClientFactory.CreateClient("Backend");
+        _notificacao = notificacao;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -37,15 +43,18 @@ public class PollingService : BackgroundService
             try
             {
                 if (_concentrador.Conectar()) break;
+                await NotificarProblemaConexao("Falha ao conectar ao concentrador na inicialização.");
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Erro ao conectar ao concentrador");
+                await NotificarProblemaConexao($"Erro ao conectar ao concentrador: {ex.Message}");
             }
             _logger.LogWarning("Tentando reconectar ao concentrador em 5s...");
             await Task.Delay(5000, stoppingToken);
         }
 
+        await NotificarConexaoRecuperada();
         _logger.LogInformation("Polling iniciado com intervalo de {Intervalo}ms", intervalo);
 
         while (!stoppingToken.IsCancellationRequested)
@@ -58,9 +67,13 @@ public class PollingService : BackgroundService
                 {
                     if (!_concentrador.Conectar())
                     {
+                        await NotificarProblemaConexao(
+                            "Conexão com o concentrador caiu e a reconexão automática falhou. "
+                            + "Pode ser queda de rede/cabo ou falha (Access Violation) na DLL nativa.");
                         await Task.Delay(intervalo, stoppingToken);
                         continue;
                     }
+                    await NotificarConexaoRecuperada();
                 }
 
                 if (_concentrador.IsConnected)
@@ -75,6 +88,40 @@ public class PollingService : BackgroundService
         }
 
         _concentrador.Desconectar();
+    }
+
+    private async Task NotificarProblemaConexao(string detalhe)
+    {
+        try
+        {
+            var tipo = _config["Concentrador:TipoConexao"] ?? "ethernet";
+            var destino = tipo == "serial"
+                ? $"porta serial {_config["Concentrador:PortaSerial"]}"
+                : $"{_config["Concentrador:Ip"]}:{_config["Concentrador:Porta"]}";
+            await _notificacao.NotificarProblemaAsync(
+                ChaveConexao,
+                "Sem conexão com o concentrador",
+                $"{detalhe}\n\nConexão: {tipo} ({destino})");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Falha ao notificar problema de conexão");
+        }
+    }
+
+    private async Task NotificarConexaoRecuperada()
+    {
+        try
+        {
+            await _notificacao.NotificarRecuperacaoAsync(
+                ChaveConexao,
+                "Conexão com o concentrador restabelecida",
+                "A comunicação com o concentrador foi restabelecida e o polling voltou ao normal.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Falha ao notificar recuperação de conexão");
+        }
     }
 
     private async Task VerificarAbastecimento()
