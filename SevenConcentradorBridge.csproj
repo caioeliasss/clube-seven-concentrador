@@ -7,7 +7,7 @@
     <RootNamespace>SevenConcentradorBridge</RootNamespace>
     <!-- Fonte única de versão: alimenta o assembly (lido pelo UpdateService) e o
          instalador (build-installer.bat extrai e passa /DAppVersion para o ISCC). -->
-    <Version>1.4.1</Version>
+    <Version>1.5.0</Version>
     <ApplicationIcon>seven-logo.ico</ApplicationIcon>
     <!-- NotifyIcon na bandeja (TrayIcon.cs). Exige TFM -windows. -->
     <UseWindowsForms>true</UseWindowsForms>

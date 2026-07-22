@@ -441,6 +441,17 @@ public class ConcentradorController : ControllerBase
         });
     }
 
+    // Disparo manual do update (protegido por auth — POST não é liberado no middleware).
+    // Fallback pra quando o auto-update falhar ou estiver desligado (Update:Automatico=false).
+    [HttpPost("version/atualizar")]
+    public async Task<IActionResult> Atualizar(CancellationToken ct)
+    {
+        var r = await _update.ForcarAtualizacaoAsync(ct);
+        return r.Sucesso
+            ? Ok(new { sucesso = true, mensagem = r.Mensagem, versaoNova = r.VersaoNova })
+            : BadRequest(new { sucesso = false, erro = r.Mensagem });
+    }
+
     // ===== Painel: configuração e controle de conexão =====
 
     // Valida a key (Authorization: Bearer) localmente contra Backend:ApiKey. Liberado

@@ -77,6 +77,62 @@ public class UpdateService : BackgroundService
         }
     }
 
+    public record ResultadoAtualizacao(bool Sucesso, string Mensagem, string? VersaoNova = null);
+
+    /// <summary>
+    /// Disparo manual (painel): consulta o release mais recente e, se houver versão maior,
+    /// baixa e aplica ignorando Update:Automatico. Serve quando o auto-update falhou/está desligado.
+    /// </summary>
+    public async Task<ResultadoAtualizacao> ForcarAtualizacaoAsync(CancellationToken ct = default)
+    {
+        if (_instaladorLancado)
+            return new(true, "Instalação já em andamento — o bridge vai reiniciar em instantes.");
+
+        if (Path.GetFileNameWithoutExtension(Environment.ProcessPath ?? "")
+                .Equals("dotnet", StringComparison.OrdinalIgnoreCase))
+            return new(false, "Rodando em modo dev (dotnet) — atualização indisponível.");
+
+        var repo = (_config["Update:Repo"] ?? "caioeliasss/clube-seven-concentrador").Trim();
+
+        (Version? versao, string? downloadUrl) release;
+        try
+        {
+            release = await ConsultarUltimoRelease(repo, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "UpdateService: falha ao consultar release (manual)");
+            return new(false, "Não foi possível consultar o GitHub: " + ex.Message);
+        }
+
+        if (release.versao == null)
+            return new(false, "Não foi possível obter o último release do GitHub.");
+
+        VersaoMaisRecente = release.versao;
+
+        if (release.versao <= VersaoAtual)
+            return new(true, $"Já está na versão mais recente ({VersaoAtual}).");
+
+        if (string.IsNullOrEmpty(release.downloadUrl))
+            return new(false, $"Release {release.versao} não tem instalador (ClubeSevenBridge-Setup-*.exe).");
+
+        try
+        {
+            await BaixarEAplicar(release.downloadUrl, release.versao, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "UpdateService: falha na atualização manual");
+            return new(false, "Falha ao baixar/aplicar: " + ex.Message);
+        }
+
+        // BaixarEAplicar aborta sem lançar o instalador se o download for suspeito.
+        if (!_instaladorLancado)
+            return new(false, "Download inválido — atualização abortada. Veja os logs.");
+
+        return new(true, $"Instalando {release.versao} — o bridge vai reiniciar.", release.versao.ToString());
+    }
+
     private async Task VerificarEAtualizar(CancellationToken ct)
     {
         if (_instaladorLancado) return; // já disparou o upgrade; aguardando o instalador fechar.

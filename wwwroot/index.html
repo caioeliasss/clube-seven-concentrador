@@ -79,7 +79,7 @@
 </head>
 <body>
   <header>
-    <h1>ClubeSevenBridge — Painel</h1>
+    <h1>ClubeSevenBridge — Painel <span id="versao" style="font-size:12px;font-weight:400;color:var(--muted);"></span></h1>
     <div class="status">
       <span class="dot" id="dot"></span>
       <span id="statusText">Concentrador: verificando…</span>
@@ -93,6 +93,18 @@
         <button class="btn ok" id="btnConectar">Conectar</button>
         <button class="btn danger" id="btnDesconectar">Desconectar</button>
       </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2>Atualização</h2>
+        <span class="badge"><span id="updInfo">—</span></span>
+      </div>
+      <div class="row">
+        <button class="btn secondary" id="btnBuscarUpd">Buscar atualização</button>
+        <button class="btn" id="btnAtualizar" style="display:none;">Atualizar agora</button>
+      </div>
+      <div class="hint" id="updHint">Instalação normalmente é automática. Use aqui caso ela falhe ou esteja desligada.</div>
     </div>
 
     <div class="card">
@@ -303,6 +315,7 @@
         const conectado = !!j.conectado;
         $("dot").className = "dot " + (conectado ? "ok" : "bad");
         $("statusText").textContent = "Status: " + (conectado ? "conectado" : "não conectado");
+        if (j.versao) $("versao").textContent = "v" + j.versao;
       } catch {
         $("dot").className = "dot bad";
         $("statusText").textContent = "Status: bridge offline";
@@ -473,6 +486,44 @@
     $("btnBuscar").onclick = buscarAbastecimentos;
     $("btnBuscaLimpar").onclick = limparBusca;
     $("btnStatusRefresh").onclick = carregarStatusHist;
+
+    // --- Atualização ---
+    async function buscarAtualizacao(silencioso) {
+      try {
+        const r = await fetch(`${API}/version`);
+        const j = await r.json();
+        if (j.versao) $("versao").textContent = "v" + j.versao;
+        if (j.atualizacaoDisponivel) {
+          $("updInfo").textContent = "nova: v" + (j.versaoMaisRecente || "?");
+          $("btnAtualizar").style.display = "";
+          if (!silencioso) toast("Atualização disponível: v" + j.versaoMaisRecente);
+        } else {
+          $("updInfo").textContent = "em dia (v" + (j.versao || "?") + ")";
+          $("btnAtualizar").style.display = "none";
+          if (!silencioso) toast("Já está na versão mais recente");
+        }
+      } catch {
+        if (!silencioso) toast("Falha ao buscar atualização", false);
+      }
+    }
+
+    async function atualizarAgora() {
+      if (!confirm("Baixar e instalar a atualização agora? O bridge reinicia ao final.")) return;
+      toast("Baixando atualização…");
+      try {
+        const r = await fetch(`${API}/version/atualizar`, { method: "POST", headers: headers(false) });
+        if (r.status === 401) { toast("Informe o Token acima primeiro", false); return; }
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) { toast(j.erro || "Falha ao atualizar", false); return; }
+        toast(j.mensagem || "Instalando — o bridge vai reiniciar");
+      } catch {
+        toast("Falha ao atualizar", false);
+      }
+    }
+
+    $("btnBuscarUpd").onclick = () => buscarAtualizacao(false);
+    $("btnAtualizar").onclick = atualizarAgora;
+    buscarAtualizacao(true);
 
     $("btnSalvar").onclick = salvar;
     $("btnRecarregar").onclick = carregar;

@@ -89,8 +89,11 @@ app.Use(async (context, next) =>
     //    contra o backend remoto; exigir auth aqui impediria verificar um token novo.
     var ehGetConfig = HttpMethods.IsGet(context.Request.Method)
         && p.StartsWithSegments("/api/concentrador/config");
+    // version só liberado no GET (leitura). POST /version/atualizar dispara update → exige auth.
+    var ehGetVersion = HttpMethods.IsGet(context.Request.Method)
+        && p.StartsWithSegments("/api/concentrador/version");
     if (p.StartsWithSegments("/api/concentrador/health")
-        || p.StartsWithSegments("/api/concentrador/version")
+        || ehGetVersion
         || p.StartsWithSegments("/api/concentrador/key/check")
         || p.StartsWithSegments("/api/concentrador/backend/check")
         || ehGetConfig)
