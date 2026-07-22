@@ -116,9 +116,10 @@ public class UpdateService : BackgroundService
         if (string.IsNullOrEmpty(release.downloadUrl))
             return new(false, $"Release {release.versao} não tem instalador (ClubeSevenBridge-Setup-*.exe).");
 
+        bool lancado;
         try
         {
-            await BaixarEAplicar(release.downloadUrl, release.versao, ct);
+            lancado = await BaixarEAplicar(release.downloadUrl, release.versao, ct);
         }
         catch (Exception ex)
         {
@@ -126,9 +127,10 @@ public class UpdateService : BackgroundService
             return new(false, "Falha ao baixar/aplicar: " + ex.Message);
         }
 
-        // BaixarEAplicar aborta sem lançar o instalador se o download for suspeito.
-        if (!_instaladorLancado)
-            return new(false, "Download inválido — atualização abortada. Veja os logs.");
+        // BaixarEAplicar retorna false (sem latchar) se o download for suspeito ou a elevação
+        // (UAC) for recusada — nesse caso o operador pode tentar de novo aprovando o prompt.
+        if (!lancado)
+            return new(false, "Não foi possível iniciar o instalador (download inválido ou UAC recusado). Veja os logs.");
 
         return new(true, $"Instalando {release.versao} — o bridge vai reiniciar.", release.versao.ToString());
     }
@@ -167,6 +169,7 @@ public class UpdateService : BackgroundService
             return;
         }
 
+        // Se falhar (UAC recusado etc.) não latcha — o próximo ciclo tenta de novo.
         await BaixarEAplicar(downloadUrl, versao, ct);
     }
 
@@ -208,7 +211,12 @@ public class UpdateService : BackgroundService
         return (versao, downloadUrl);
     }
 
-    private async Task BaixarEAplicar(string downloadUrl, Version versao, CancellationToken ct)
+    /// <summary>
+    /// Baixa o instalador e o lança. Retorna true só se o processo do instalador foi realmente
+    /// iniciado. Em falha (download suspeito, UAC cancelado, elevação recusada) retorna false
+    /// SEM latchar _instaladorLancado — assim a próxima checagem re-tenta em vez de congelar.
+    /// </summary>
+    private async Task<bool> BaixarEAplicar(string downloadUrl, Version versao, CancellationToken ct)
     {
         var destino = Path.Combine(Path.GetTempPath(), $"ClubeSevenBridge-Setup-{versao}.exe");
 
@@ -225,19 +233,41 @@ public class UpdateService : BackgroundService
         {
             _logger.LogWarning("UpdateService: download suspeito ({Bytes} bytes) — abortando.", info.Exists ? info.Length : 0);
             try { File.Delete(destino); } catch { }
-            return;
+            return false;
         }
 
         // Lança o instalador silencioso. UseShellExecute=true dispara o UAC (PrivilegesRequired=admin).
         // O instalador fecha este processo via Restart Manager e reinicia o bridge ao final.
         _logger.LogWarning("UpdateService: aplicando atualização {Nova} — o bridge será reiniciado pelo instalador.", versao);
-        _instaladorLancado = true;
-        Process.Start(new ProcessStartInfo
+        try
         {
-            FileName = destino,
-            Arguments = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /NOCANCEL",
-            UseShellExecute = true,
-        });
+            var proc = Process.Start(new ProcessStartInfo
+            {
+                FileName = destino,
+                Arguments = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /NOCANCEL",
+                UseShellExecute = true,
+            });
+            if (proc == null)
+            {
+                _logger.LogWarning("UpdateService: Process.Start não retornou processo — instalador não iniciou.");
+                return false;
+            }
+        }
+        catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1223)
+        {
+            // 1223 = ERROR_CANCELLED: UAC recusado/cancelado. Não latcha — re-tenta depois.
+            _logger.LogWarning(ex, "UpdateService: elevação (UAC) recusada — atualização não aplicada. Vai re-tentar no próximo ciclo.");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "UpdateService: falha ao lançar o instalador — não latchando para permitir re-tentativa.");
+            return false;
+        }
+
+        // Só marca como lançado após o Process.Start ter sucesso de fato.
+        _instaladorLancado = true;
+        return true;
     }
 
     /// <summary>Tag "v0.7.3" / "0.7.3" → Version normalizada X.Y.Z.</summary>
