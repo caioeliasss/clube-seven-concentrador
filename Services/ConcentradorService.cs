@@ -119,8 +119,44 @@ public class ConcentradorService : IDisposable
     public string LerStatus() => Executar(() =>
     {
         if (!_connected) throw new InvalidOperationException("Não conectado ao concentrador");
-        return _dll.C_readState();
+        var status = _dll.C_readState();
+        if (RespostaIndicaQueda(status))
+        {
+            _logger.LogWarning(
+                "Concentrador não respondeu (status='{Status}') — derrubando conexão para reconectar", status);
+            DerrubarConexao();
+        }
+        return status;
     });
+
+    // Quando o socket/serial cai (ex.: simulador ou concentrador desligado) a DLL NÃO crasha —
+    // o worker segue vivo e C_readState passa a devolver "SEM RESPOSTA" / "FALHA". Sem isso,
+    // _connected ficaria preso em true e o loop de polling nunca reabriria a conexão.
+    private static bool RespostaIndicaQueda(string? r)
+    {
+        if (string.IsNullOrWhiteSpace(r)) return true;
+        string t = r.Trim().ToUpperInvariant();
+        return t.Contains("SEM RESPOSTA") || t == "FALHA";
+    }
+
+    // Fecha o socket/serial e marca desconectado SEM enfileirar (já roda na thread DLL — passar
+    // por Executar aqui causaria deadlock). Mantém _desejaConectado=true para o polling reconectar.
+    private void DerrubarConexao()
+    {
+        try
+        {
+            var tipo = _config["Concentrador:TipoConexao"] ?? "ethernet";
+            if (tipo == "serial")
+                _dll.C_CloseSerial();
+            else
+                _dll.C_CloseSocket();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Erro ao fechar conexão após queda do concentrador");
+        }
+        _connected = false;
+    }
 
     public string LerAbastecimento() => Executar(() =>
     {
