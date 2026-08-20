@@ -83,6 +83,8 @@
     <div class="status">
       <span class="dot" id="dot"></span>
       <span id="statusText">Concentrador: verificando…</span>
+      <span class="dot" id="filaDot" style="margin-left:12px;"></span>
+      <span id="filaStatusText" style="font-weight:400;">Fila: verificando…</span>
     </div>
   </header>
 
@@ -167,6 +169,22 @@
         <div>
           <label for="pollStatusMs">Polling status (ms)</label>
           <input id="pollStatusMs" inputmode="numeric" />
+        </div>
+        <div class="full">
+          <label for="filaUrl">Fila de comandos (Socket.IO) — URL do servidor</label>
+          <input id="filaUrl" placeholder="http://servidor-clube-seven:8080" />
+          <div class="hint">Vazio usa a Webhook URL acima (mesma porta da API). Mudança exige Reiniciar.</div>
+        </div>
+        <div>
+          <label for="filaToken">Fila — Token do posto</label>
+          <input type="password" id="filaToken" placeholder="vazio usa o Token/ApiKey do backend" />
+        </div>
+        <div>
+          <label for="filaHabilitado">Fila de comandos</label>
+          <select id="filaHabilitado">
+            <option value="true">habilitada</option>
+            <option value="false">desabilitada</option>
+          </select>
         </div>
       </div>
 
@@ -315,6 +333,14 @@
         const conectado = !!j.conectado;
         $("dot").className = "dot " + (conectado ? "ok" : "bad");
         $("statusText").textContent = "Status: " + (conectado ? "conectado" : "não conectado");
+        if (j.filaHabilitada === false) {
+          $("filaDot").className = "dot";
+          $("filaStatusText").textContent = "Fila: desativada";
+        } else {
+          const filaOk = !!j.filaConectado;
+          $("filaDot").className = "dot " + (filaOk ? "ok" : "bad");
+          $("filaStatusText").textContent = "Fila: " + (filaOk ? "conectada" : "desconectada");
+        }
         if (j.versao) $("versao").textContent = "v" + j.versao;
       } catch {
         $("dot").className = "dot bad";
@@ -344,6 +370,9 @@
         if (c.backendApiKey != null) $("backendKey").value = c.backendApiKey;
         $("pollMs").value = c.pollingIntervaloMs ?? "";
         $("pollStatusMs").value = c.pollingStatusIntervaloMs ?? "";
+        $("filaUrl").value = c.filaUrl ?? "";
+        if (c.filaToken != null) $("filaToken").value = c.filaToken;
+        $("filaHabilitado").value = c.filaHabilitado ?? "true";
       } catch (e) {
         toast("Falha ao carregar config", false);
       }
@@ -358,6 +387,9 @@
         concentradorPortaSerial: $("concPortaSerial").value.trim(),
         pollingIntervaloMs: $("pollMs").value.trim(),
         pollingStatusIntervaloMs: $("pollStatusMs").value.trim(),
+        filaUrl: $("filaUrl").value.trim(),
+        filaToken: $("filaToken").value.trim(),
+        filaHabilitado: $("filaHabilitado").value,
       };
       try {
         const r = await fetch(`${API}/config`, {

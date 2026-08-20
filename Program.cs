@@ -60,6 +60,10 @@ builder.Services.AddSingleton<LocalDbService>();
 builder.Services.AddSingleton<PollingService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<PollingService>());
 builder.Services.AddHostedService<StatusPollingService>();
+// Fila de comandos do Clube Seven via Socket.IO (guides/integracao-socket.md).
+// Singleton + hosted: o controller (GET /health) lê o estado do mesmo objeto.
+builder.Services.AddSingleton<QueueSocketService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<QueueSocketService>());
 // Poda registros antigos do banco (controle de crescimento + janela de retenção).
 builder.Services.AddHostedService<RetencaoBancoService>();
 // Singleton + hosted: o controller (GET /version) lê o estado do mesmo objeto.

@@ -36,6 +36,7 @@ Three layers, glued by a single-threaded queue and an out-of-process worker:
 **2. Service layer** — `Services/`
 - `ConcentradorService` — serializes every DLL call through one `BlockingCollection<Action>` consumed by a dedicated thread (`DLL-Concentrador`). The native DLL is **not thread-safe**; never bypass `Executar(...)`.
 - `PollingService` (`BackgroundService`) — connects on startup with retry, then every `Polling:IntervaloMs` polls `C_GetSale`, matches `canal` against bicos registered by `MonitorarBico` (called after a successful preset), POSTs `WebhookPayload` to `Backend:WebhookUrl`, then calls `C_NextSale`.
+- `QueueSocketService` (`BackgroundService`) — Socket.IO client for the Clube Seven command queue (`guides/integracao-socket.md`). Connects with auth `{ token }` (config `Fila:Url`/`Fila:Token`, fallback to `Backend:WebhookUrl`/`Backend:ApiKey`), handles `queue:new`/`queue:sync` → emits `queue:ack`/`queue:done`. Executes `alterarPreco`, `visualizarStream` (single snapshot in `done.result`), `checkBridge`. Own reconnect loop (3s→15s backoff); session dedup avoids re-running docs redelivered by sync.
 
 **3. Native isolation** — `Native/`
 - `CompanytecDll.cs` — `[DllImport]` declarations for `companytec.dll`. Read the comments before adding entries — several exports (`C_SendReceiveText` returns Delphi `ShortString`, `LePPLNivel` takes managed `ansistring`) crash under naive P/Invoke.

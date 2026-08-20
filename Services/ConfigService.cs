@@ -17,6 +17,10 @@ public class ConfigDto
     public string? BackendWebhookUrl { get; set; }
     public string? BackendApiKey { get; set; }
 
+    public string? FilaHabilitado { get; set; }
+    public string? FilaUrl { get; set; }
+    public string? FilaToken { get; set; }
+
     public string? PollingIntervaloMs { get; set; }
     public string? PollingStatusIntervaloMs { get; set; }
 }
@@ -50,6 +54,9 @@ public class ConfigService
             ConcentradorPortaSerial = Get(root, "Concentrador", "PortaSerial"),
             BackendWebhookUrl = Get(root, "Backend", "WebhookUrl"),
             BackendApiKey = Get(root, "Backend", "ApiKey"),
+            FilaHabilitado = Get(root, "Fila", "Habilitado"),
+            FilaUrl = Get(root, "Fila", "Url"),
+            FilaToken = Get(root, "Fila", "Token"),
             PollingIntervaloMs = Get(root, "Polling", "IntervaloMs"),
             PollingStatusIntervaloMs = Get(root, "Polling", "StatusIntervaloMs"),
         };
@@ -70,6 +77,9 @@ public class ConfigService
         Set(root, "Concentrador", "PortaSerial", dto.ConcentradorPortaSerial);
         Set(root, "Backend", "WebhookUrl", dto.BackendWebhookUrl);
         Set(root, "Backend", "ApiKey", NaoVazio(dto.BackendApiKey));
+        Set(root, "Fila", "Habilitado", dto.FilaHabilitado);
+        Set(root, "Fila", "Url", dto.FilaUrl);
+        Set(root, "Fila", "Token", NaoVazio(dto.FilaToken));
         Set(root, "Polling", "IntervaloMs", dto.PollingIntervaloMs);
         Set(root, "Polling", "StatusIntervaloMs", dto.PollingStatusIntervaloMs);
 

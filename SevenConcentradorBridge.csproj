@@ -27,6 +27,7 @@
        (sem dependência nativa) — não arrisca o publish single-file win-x86. -->
   <ItemGroup>
     <PackageReference Include="LiteDB" Version="5.0.21" />
+    <PackageReference Include="SocketIOClient" Version="4.0.5" />
   </ItemGroup>
 
   <ItemGroup>

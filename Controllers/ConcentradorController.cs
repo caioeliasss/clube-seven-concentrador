@@ -16,6 +16,7 @@ public class ConcentradorController : ControllerBase
     private readonly BackendStatusService _backendStatus;
     private readonly UpdateService _update;
     private readonly LocalDbService _db;
+    private readonly QueueSocketService _fila;
     private readonly ILogger<ConcentradorController> _logger;
 
     public ConcentradorController(
@@ -26,6 +27,7 @@ public class ConcentradorController : ControllerBase
         BackendStatusService backendStatus,
         UpdateService update,
         LocalDbService db,
+        QueueSocketService fila,
         ILogger<ConcentradorController> logger)
     {
         _concentrador = concentrador;
@@ -35,6 +37,7 @@ public class ConcentradorController : ControllerBase
         _backendStatus = backendStatus;
         _update = update;
         _db = db;
+        _fila = fila;
         _logger = logger;
     }
 
@@ -424,6 +427,8 @@ public class ConcentradorController : ControllerBase
         {
             status = "ok",
             conectado = _concentrador.IsConnected,
+            filaHabilitada = _fila.Habilitado,
+            filaConectado = _fila.Conectado,
             versao = _update.VersaoAtual.ToString(),
             timestamp = DateTime.UtcNow
         });
@@ -499,6 +504,7 @@ public class ConcentradorController : ControllerBase
         if (!_apiKey.ValidarKey(KeyDoRequest()))
         {
             cfg.BackendApiKey = null;
+            cfg.FilaToken = null;
         }
 
         return Ok(cfg);
