@@ -55,7 +55,7 @@ public class UpdateService : BackgroundService
             return;
         }
 
-        var intervaloHoras = double.TryParse(_config["Update:IntervaloHoras"], out var h) && h > 0 ? h : 6;
+        var intervaloHoras = double.TryParse(_config["Update:IntervaloHoras"], out var h) && h > 0 ? Math.Min(h, 1) : 1;
 
         // Delay inicial para não competir com a subida do host/concentrador.
         try { await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken); }
