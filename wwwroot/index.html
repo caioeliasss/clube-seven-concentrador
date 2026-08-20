@@ -522,7 +522,7 @@
     // --- Atualização ---
     async function buscarAtualizacao(silencioso) {
       try {
-        const r = await fetch(`${API}/version`);
+        const r = await fetch(`${API}/version/verificar`);
         const j = await r.json();
         if (j.versao) $("versao").textContent = "v" + j.versao;
         if (j.atualizacaoDisponivel) {

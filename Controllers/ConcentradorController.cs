@@ -446,6 +446,22 @@ public class ConcentradorController : ControllerBase
         });
     }
 
+    // Checagem ao vivo (painel "Buscar atualização") — consulta o GitHub e atualiza o cache.
+    // GET como /version: sem efeitos colaterais além de refrescar VersaoMaisRecente.
+    [HttpGet("version/verificar")]
+    public async Task<IActionResult> VerificarAtualizacao(CancellationToken ct)
+    {
+        var versao = await _update.VerificarAgoraAsync(ct);
+        if (versao == null)
+            return StatusCode(502, new { erro = "Não foi possível consultar o GitHub." });
+        return Ok(new
+        {
+            versao = _update.VersaoAtual.ToString(),
+            atualizacaoDisponivel = _update.AtualizacaoDisponivel,
+            versaoMaisRecente = _update.VersaoMaisRecente?.ToString(),
+        });
+    }
+
     // Disparo manual do update (protegido por auth — POST não é liberado no middleware).
     // Fallback pra quando o auto-update falhar ou estiver desligado (Update:Automatico=false).
     [HttpPost("version/atualizar")]

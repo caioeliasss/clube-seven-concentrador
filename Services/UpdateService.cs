@@ -80,6 +80,19 @@ public class UpdateService : BackgroundService
     public record ResultadoAtualizacao(bool Sucesso, string Mensagem, string? VersaoNova = null);
 
     /// <summary>
+    /// Checagem ao vivo (painel "Buscar atualização"): consulta o GitHub agora e atualiza
+    /// VersaoMaisRecente — sem esperar o próximo ciclo do loop de background.
+    /// </summary>
+    public async Task<Version?> VerificarAgoraAsync(CancellationToken ct = default)
+    {
+        var repo = (_config["Update:Repo"] ?? "caioeliasss/clube-seven-concentrador").Trim();
+        var (versao, _) = await ConsultarUltimoRelease(repo, ct);
+        if (versao != null)
+            VersaoMaisRecente = versao;
+        return versao;
+    }
+
+    /// <summary>
     /// Disparo manual (painel): consulta o release mais recente e, se houver versão maior,
     /// baixa e aplica ignorando Update:Automatico. Serve quando o auto-update falhou/está desligado.
     /// </summary>
