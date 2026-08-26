@@ -251,13 +251,14 @@ public class UpdateService : BackgroundService
 
         // Lança o instalador silencioso. UseShellExecute=true dispara o UAC (PrivilegesRequired=admin).
         // O instalador fecha este processo via Restart Manager e reinicia o bridge ao final.
+        // /LOG: Inno escreve "Setup Log *.txt" no %TEMP% — sem isso uma falha silenciosa é invisível.
         _logger.LogWarning("UpdateService: aplicando atualização {Nova} — o bridge será reiniciado pelo instalador.", versao);
         try
         {
             var proc = Process.Start(new ProcessStartInfo
             {
                 FileName = destino,
-                Arguments = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /NOCANCEL",
+                Arguments = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /NOCANCEL /LOG",
                 UseShellExecute = true,
             });
             if (proc == null)
@@ -265,6 +266,26 @@ public class UpdateService : BackgroundService
                 _logger.LogWarning("UpdateService: Process.Start não retornou processo — instalador não iniciou.");
                 return false;
             }
+
+            // Monitora em background: se o instalador sair rápido com código != 0 (falha —
+            // ex. arquivo travado, UAC pós-lançamento), reseta o latch para permitir re-tentativa.
+            // No caminho feliz o instalador encerra ESTE processo, então a monitoração morre junto.
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var saiu = await Task.Run(() => proc.WaitForExit(120_000));
+                    if (saiu && proc.ExitCode != 0)
+                    {
+                        _logger.LogError(
+                            "UpdateService: instalador falhou com código {Code} — veja \"Setup Log *.txt\" no %TEMP%.",
+                            proc.ExitCode);
+                        _instaladorLancado = false;
+                    }
+                }
+                catch { /* best-effort: monitoração nunca deve derrubar nada */ }
+                finally { proc.Dispose(); }
+            });
         }
         catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1223)
         {

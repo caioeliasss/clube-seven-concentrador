@@ -1,13 +1,18 @@
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
+
 namespace SevenConcentradorBridge.Services;
 
 // Manual §2.5 — lê status das bombas (LeStatus/C_readState) a cada Polling:StatusIntervaloMs.
-// Mantém só o último status em memória; quando muda, grava no histórico local. Fluxo pull:
-// não envia nada ao backend — o backend consulta GET /status/historico quando quiser.
+// Mantém só o último status em memória; quando muda, grava no histórico local e POST para
+// {Backend:WebhookUrl}/api/concentrador/status. Backend também pode consultar GET /status/historico.
 public class StatusPollingService : BackgroundService
 {
     private readonly ConcentradorService _concentrador;
     private readonly ILogger<StatusPollingService> _logger;
     private readonly IConfiguration _config;
+    private readonly HttpClient _httpClient;
     private readonly LocalDbService _db;
 
     private string? _ultimoStatus;
@@ -16,11 +21,13 @@ public class StatusPollingService : BackgroundService
         ConcentradorService concentrador,
         ILogger<StatusPollingService> logger,
         IConfiguration config,
+        IHttpClientFactory httpClientFactory,
         LocalDbService db)
     {
         _concentrador = concentrador;
         _logger = logger;
         _config = config;
+        _httpClient = httpClientFactory.CreateClient("Backend");
         _db = db;
     }
 
@@ -49,7 +56,7 @@ public class StatusPollingService : BackgroundService
             try
             {
                 if (_concentrador.IsConnected)
-                    VerificarStatus();
+                    await VerificarStatus(stoppingToken);
             }
             catch (Exception ex)
             {
@@ -60,7 +67,7 @@ public class StatusPollingService : BackgroundService
         }
     }
 
-    private void VerificarStatus()
+    private async Task VerificarStatus(CancellationToken ct)
     {
         string status;
         try
@@ -82,8 +89,54 @@ public class StatusPollingService : BackgroundService
         _ultimoStatus = chave;
         _logger.LogInformation("Status mudou: {Status}", status);
 
-        // Histórico local para consulta. Backend lê GET /status/historico quando precisar.
+        // Histórico local para auditoria/consulta. Status é snapshot, não outbox — só registramos
+        // a mudança; o envio abaixo segue como antes (não há reenvio de snapshot antigo).
         try { _db.InserirStatus(chave, status); }
         catch (Exception ex) { _logger.LogError(ex, "Falha ao gravar histórico de status no banco"); }
+
+        await EnviarParaBackend(status, ct);
+    }
+
+    // POST {Backend:WebhookUrl}/api/concentrador/status com { statusString } e
+    // Authorization: Bearer <Backend:ApiKey>. Falha de rede não derruba o polling
+    // nem desfaz a gravação local — o backend também pode buscar via /status/historico.
+    private async Task EnviarParaBackend(string statusString, CancellationToken ct)
+    {
+        var apiUrl = (_config["Backend:WebhookUrl"] ?? _config["API_URL"] ?? "").TrimEnd('/');
+        var token = _config["Backend:ApiKey"] ?? _config["TOKEN"] ?? "";
+
+        if (string.IsNullOrEmpty(apiUrl))
+        {
+            _logger.LogWarning("Backend:WebhookUrl/API_URL não configurada — status não enviado");
+            return;
+        }
+
+        var url = $"{apiUrl}/api/concentrador/status";
+        var body = JsonSerializer.Serialize(new { statusString });
+
+        var request = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = new StringContent(body, Encoding.UTF8, "application/json"),
+        };
+
+        if (!string.IsNullOrEmpty(token))
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        try
+        {
+            var response = await _httpClient.SendAsync(request, ct);
+            if (response.IsSuccessStatusCode)
+                _logger.LogInformation("Status enviado ao backend");
+            else
+                _logger.LogError("Backend retornou {Status} para status — URL: {Url}", response.StatusCode, url);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Shutdown — não loga como erro.
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Falha ao enviar status para {Url}", url);
+        }
     }
 }
