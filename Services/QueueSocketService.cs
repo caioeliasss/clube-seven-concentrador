@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Channels;
@@ -55,6 +56,19 @@ public class VisualizarStreamData
     public int? IntervalMs { get; set; }
 }
 
+// data { bridgeUrl, bridgeKey } — checkBridge testa a conexão local com a bridge
+// usando as credenciais que o servidor tem salvas (guide §checkBridge).
+public class CheckBridgeData
+{
+    [JsonPropertyName("bridgeUrl")]
+    [JsonConverter(typeof(JsonStringFlexivel))]
+    public string? BridgeUrl { get; set; }
+
+    [JsonPropertyName("bridgeKey")]
+    [JsonConverter(typeof(JsonStringFlexivel))]
+    public string? BridgeKey { get; set; }
+}
+
 // String que aceita JsonTokenType.String OU Number (5490 → "5490"; 5.49 → "5.49").
 public sealed class JsonStringFlexivel : JsonConverter<string?>
 {
@@ -107,6 +121,11 @@ public class QueueSocketService : BackgroundService
 
     private volatile SocketIO? _io;
     private volatile bool _conectado;
+
+    // checkBridge: HTTP na própria bridge com as credenciais do servidor. Timeout
+    // de 8s — o servidor espera o queue:done do check por no máx. 10s (guide).
+    private static readonly HttpClient HttpCheck = new();
+    private const int CheckBridgeTimeoutMs = 8_000;
 
     // Lido no ctor para o /health já nascer com o estado correto (ExecuteAsync roda depois).
     public bool Habilitado { get; }
@@ -366,7 +385,7 @@ public class QueueSocketService : BackgroundService
             bool emitirDone = true;
             try
             {
-                (sucesso, resultado, emitirDone) = Executar(doc);
+                (sucesso, resultado, emitirDone) = await Executar(doc, ct);
             }
             catch (Exception ex)
             {
@@ -407,7 +426,7 @@ public class QueueSocketService : BackgroundService
     // Executa a action usando a mesma lógica dos endpoints HTTP originais.
     // EmitirDone=false → o comando continua em execução assíncrona (stream); o done
     // é emitido depois, pelo encerramento do stream.
-    private (bool sucesso, object? resultado, bool emitirDone) Executar(FilaDoc doc)
+    private async Task<(bool sucesso, object? resultado, bool emitirDone)> Executar(FilaDoc doc, CancellationToken ct)
     {
         switch (doc.Action?.Trim().ToLowerInvariant())
         {
@@ -449,16 +468,55 @@ public class QueueSocketService : BackgroundService
 
             case "checkbridge":
             {
-                return (true, new
-                {
-                    message = "Bridge conectada",
-                    conectadoConcentrador = _concentrador.IsConnected,
-                }, true);
+                // Guide §checkBridge: testa a conexão local com a bridge via HTTP
+                // (bridgeUrl + bridgeKey do servidor); done sai com result { ok, error? }.
+                var d = Dados<CheckBridgeData>(doc);
+                var (ok, motivo) = await ChecarBridgeAsync(d);
+                var result = new Dictionary<string, object?> { ["ok"] = ok };
+                if (motivo != null) result["error"] = motivo;
+                return (ok, result, true);
             }
 
             default:
                 _logger.LogWarning("Fila: action desconhecida '{Action}' ({Id})", doc.Action, doc.Id);
                 return (false, null, true);
+        }
+    }
+
+    // GET {bridgeUrl}/api/concentrador/health com X-Api-Key: bridgeKey — valida a URL
+    // e a chave que o servidor tem salvas para esta bridge. Sempre conclui bem antes
+    // dos 10s que o servidor espera (guide §checkBridge).
+    private static async Task<(bool ok, string? erro)> ChecarBridgeAsync(CheckBridgeData? d)
+    {
+        var url = d?.BridgeUrl?.Trim();
+        if (string.IsNullOrEmpty(url))
+            return (false, "checkBridge exige bridgeUrl");
+
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var baseUri) ||
+            (baseUri.Scheme != Uri.UriSchemeHttp && baseUri.Scheme != Uri.UriSchemeHttps))
+            return (false, $"bridgeUrl inválida: \"{url}\"");
+
+        var alvo = new Uri(baseUri, "api/concentrador/health");
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Get, alvo);
+            if (!string.IsNullOrEmpty(d?.BridgeKey))
+                req.Headers.Add("X-Api-Key", d.BridgeKey);
+
+            using var cts = new CancellationTokenSource(CheckBridgeTimeoutMs);
+            using var resp = await HttpCheck.SendAsync(req, cts.Token);
+            if (resp.IsSuccessStatusCode) return (true, null);
+
+            var extra = resp.StatusCode == HttpStatusCode.Unauthorized ? " (bridgeKey inválida?)" : "";
+            return (false, $"bridge respondeu {(int)resp.StatusCode} {resp.StatusCode}{extra}");
+        }
+        catch (OperationCanceledException)
+        {
+            return (false, $"sem resposta da bridge em {CheckBridgeTimeoutMs / 1000}s ({alvo})");
+        }
+        catch (Exception ex)
+        {
+            return (false, $"{ex.Message} ({alvo})");
         }
     }
 
@@ -513,8 +571,10 @@ public class QueueSocketService : BackgroundService
     }
 
     // Loop de telemetria (guide §bico:volume): um C_Visualize por tick alimenta todos
-    // os streams; volume que muda renova a janela de atividade; sem mudança pelo
-    // tempo configurado (default 60s) o stream encerra com done.
+    // os streams; volumeLitros ecoa VisualizacaoBico.VolumeLitros — o total do display
+    // (R$), mesmo valor do antigo /visualizacao/stream — NÃO converter. Volume que muda
+    // renova a janela de atividade; sem mudança pelo tempo configurado (default 60s) o
+    // stream encerra com done.
     private async Task StreamLoopAsync(CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
@@ -627,7 +687,12 @@ public class QueueSocketService : BackgroundService
             ["success"] = sucesso,
         };
         if (resultado != null) payload["result"] = resultado;
-        if (erro != null) payload["erro"] = erro;
+        if (erro != null)
+        {
+            payload["erro"] = erro;
+            // Guide §Mínimo: falha reportada como result { ok: false, error } no done.
+            payload["result"] = new Dictionary<string, object?> { ["ok"] = false, ["error"] = erro };
+        }
 
         await EmitirAsync("queue:done", payload, ct);
     }

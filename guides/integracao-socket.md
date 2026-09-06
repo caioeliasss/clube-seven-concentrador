@@ -40,7 +40,7 @@ Actions existentes:
 |---|---|---|
 | `alterarPreco` | `bico` ("01"), `price` (string, em milésimos, ex. "5490" = R$5,490) | alterar o preço do bico |
 | `visualizarStream` | `bico`, `intervalMs` (default 200) | **ligar o stream de volume daquele bico**: começar a emitir `bico:volume` a cada `intervalMs` (ver Telemetria abaixo) por ~60s ou enquanto houver abastecimento |
-| `checkBridge` | (vazio) | resposta de vida/health |
+| `checkBridge` | `bridgeUrl`, `bridgeKey` | testar a conexão local com a bridge. Ao concluir, emitir `queue:done` com `result: { ok: true }` ou `result: { ok: false, error: "motivo" }`. O servidor espera **no máx. 10s** — se não responder, o check falha |
 
 **`queue:sync`** — resposta ao pedido de sincronização (array de docs `pending`, mesmo formato acima).
 
@@ -68,7 +68,7 @@ setInterval(() => {
 }, intervalMs); // ex.: 200ms
 ```
 
-- `volumeLitros`: número (litros atuais no display do bico).
+- `volumeLitros`: **mesmo valor que o endpoint HTTP antigo `/visualizacao/stream` retornava em `bico.volumeLitros`** (o total em R$ do display — o app divide pelo preço para obter litros). Não converter para litros.
 - `ts`: timestamp (ms ou s — o servidor normaliza).
 - O servidor mantém esse valor em cache e o app lê dele (sem polling na bridge).
 - Pare de emitir após ~60s sem atividade ou quando o abastecimento encerrar; se o servidor voltar a pedir `visualizarStream`, reinicie o stream.
@@ -76,14 +76,15 @@ setInterval(() => {
 ## Reconexão / resiliência
 
 - Todo comando fica salvo no servidor com `status: pending` até ser confirmado.
-- **Ao conectar (e a cada reconexão)**, pedir o backlog:
-
-```js
-socket.on("connect", () => {
-  socket.emit("queue:sync"); // servidor responde com "queue:sync" contendo os pendentes
-});
-```
-
+- **Ao conectar, o servidor já envia o backlog pendente** no evento `queue:sync` (mesmo sem a máquina pedir). Ao reconectar, a máquina também pode pedir:
+  ```js
+  socket.on("connect", () => {
+    socket.emit("queue:sync"); // servidor responde com "queue:sync" contendo os pendentes
+  });
+  ```
+- Por isso uma mesma queue pode chegar **duas vezes** (push do servidor + `queue:new`). Comandos devem ser idempotentes e/ou a máquina deve ignorar `queueId` já executado.
+- **Conexões duplicadas são derrubadas**: o servidor mantém apenas a conexão mais recente por posto. Um disconnect com motivo `server namespace disconnect` significa que uma conexão nova assumiu (normal após queda silenciosa).
+- Use **uma única instância** de `io(...)` com `reconnection: true` (padrão) — não crie instâncias novas em loops de retry.
 - Fluxo de status no servidor: `pending` → (`queue:ack`) → `processing` → (`queue:done`) → `done`.
 
 ## Mínimo para funcionar
@@ -96,10 +97,20 @@ socket.on("queue:new", async (doc) => {
 
   if (doc.action === "visualizarStream") {
     ligarStream(doc.data.bico, doc.data.intervalMs || 200); // não completa a queue — stream contínuo
-  } else {
-    await executar(doc.action, doc.data); // lógica atual dos endpoints HTTP
-    socket.emit("queue:done", { queueId: doc._id, responseTime: ms });
+    return;
   }
+
+  try {
+    await executar(doc.action, doc.data); // NUNCA deixe lançar: exceção sem catch derruba o processo (e a conexão)
+    socket.emit("queue:done", { queueId: doc._id, responseTime: ms });
+  } catch (err) {
+    // falhou (ex.: bridge local offline) — reporte e continue vivo
+    socket.emit("queue:done", { queueId: doc._id, result: { ok: false, error: String(err.message || err) } });
+  }
+});
+
+socket.on("queue:sync", (queues) => {
+  for (const doc of queues) socket.emit("queue:new", doc); // reprocessa pelo mesmo caminho acima
 });
 
 function ligarStream(bico, intervalMs) {
