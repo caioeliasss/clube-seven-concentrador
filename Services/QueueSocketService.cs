@@ -235,17 +235,34 @@ public class QueueSocketService : BackgroundService
                 };
                 io.OnError += (_, erro) => _logger.LogWarning("Fila: erro do servidor: {Erro}", erro);
 
+                // O servidor pinga a cada ~25s (engine.io v4). A lib NÃO detecta timeout
+                // de ping no cliente: conexão que morre silenciosamente (NAT/middlebox)
+                // deixa io.Connected=true e OnDisconnected nunca dispara. O watchdog
+                // abaixo usa este timestamp para derrubar a conexão meia-morta.
+                const int LimiteSemPingMs = 90_000;
+                var ultimoPingMs = Environment.TickCount64;
+                io.OnPing += (_, _) => ultimoPingMs = Environment.TickCount64;
+
                 io.On("queue:new", ctx => ReceberDoc(ctx, stoppingToken));
                 io.On("queue:sync", ctx => ReceberSync(ctx, stoppingToken));
 
                 await io.ConnectAsync(stoppingToken);
                 atrasoMs = 3_000;
 
-                // Aguarda queda (OnDisconnected) com watchdog: se o socket morrer sem
-                // evento (timeout de ping etc.), o Connected=false aqui força reconectar.
+                // Aguarda queda (OnDisconnected) com watchdog duplo: Connected=false cobre
+                // queda detectável; >90s sem ping cobre a queda silenciosa (força o break,
+                // o finally derruba o socket e o loop reconecta).
                 while (!stoppingToken.IsCancellationRequested && io.Connected && !caiu.Task.IsCompleted)
                 {
                     await Task.WhenAny(caiu.Task, Task.Delay(10_000, stoppingToken));
+                    var semPingMs = Environment.TickCount64 - ultimoPingMs;
+                    if (semPingMs > LimiteSemPingMs)
+                    {
+                        _logger.LogWarning(
+                            "Fila: {Segundos}s sem ping do servidor — derrubando conexão meia-morta",
+                            semPingMs / 1000);
+                        break;
+                    }
                 }
             }
             catch (OperationCanceledException)
@@ -269,7 +286,11 @@ public class QueueSocketService : BackgroundService
                 _io = null;
                 if (io != null)
                 {
-                    try { await io.DisconnectAsync(); } catch { /* já caiu */ }
+                    // Timeout: em socket meia-morto o DisconnectAsync pode travar
+                    // (close handshake no vazio) e bloquearia este loop para sempre.
+                    using var ctsFim = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+                    try { await io.DisconnectAsync(ctsFim.Token); }
+                    catch { /* já caiu */ }
                     io.Dispose();
                 }
             }
