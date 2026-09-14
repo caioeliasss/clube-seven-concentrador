@@ -542,15 +542,49 @@
     async function atualizarAgora() {
       if (!confirm("Baixar e instalar a atualização agora? O bridge reinicia ao final.")) return;
       toast("Baixando atualização…");
+      let alvo = null;
       try {
         const r = await fetch(`${API}/version/atualizar`, { method: "POST", headers: headers(false) });
         if (r.status === 401) { toast("Informe o Token acima primeiro", false); return; }
         const j = await r.json().catch(() => ({}));
         if (!r.ok) { toast(j.erro || "Falha ao atualizar", false); return; }
+        alvo = j.versaoNova || null;
         toast(j.mensagem || "Instalando — o bridge vai reiniciar");
       } catch {
-        toast("Falha ao atualizar", false);
+        // Conexão caiu = o instalador fechou o bridge no meio da resposta. Não é erro:
+        // o upgrade segue no Windows. Aguardamos o bridge voltar com a versão nova.
+        toast("Instalando — o bridge vai reiniciar");
       }
+      aguardarVersaoNova(alvo);
+    }
+
+    // Após disparar o update, o bridge cai (instalador o fecha) e volta em instantes.
+    // Sonda /version até a versão nova aparecer — sem isso o painel não mostra nada,
+    // parecendo que "não atualizou de jeito nenhum".
+    function aguardarVersaoNova(alvo) {
+      $("updInfo").textContent = "reiniciando…";
+      $("btnAtualizar").disabled = true;
+      const inicio = Date.now();
+      const t = setInterval(async () => {
+        if (Date.now() - inicio > 180000) {
+          clearInterval(t);
+          $("btnAtualizar").disabled = false;
+          $("updInfo").textContent = "tempo esgotado — verifique se o bridge subiu";
+          return;
+        }
+        try {
+          const r = await fetch(`${API}/version`);
+          if (!r.ok) return;
+          const j = await r.json();
+          if (alvo && j.versao !== alvo) return; // ainda a antiga — instalador em andamento
+          clearInterval(t);
+          $("btnAtualizar").disabled = false;
+          $("versao").textContent = "v" + j.versao;
+          $("updInfo").textContent = "v" + j.versao + " instalado";
+          toast("Atualizado para v" + j.versao);
+          buscarAtualizacao(true);
+        } catch { /* bridge ainda fora do ar — continua sondando */ }
+      }, 3000);
     }
 
     $("btnBuscarUpd").onclick = () => buscarAtualizacao(false);

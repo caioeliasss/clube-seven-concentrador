@@ -12,11 +12,16 @@
 #define DefaultPort "5100"
 
 [Setup]
-AppId={{8C2F1B30-7E5A-4C2E-9B1D-A1B2C3D4E5F6}
+; AppId NOVO (linha per-user): corta o vínculo com a instalação antiga em Admin/Program Files
+; (AppId 8C2F1B30-...). Se mantivesse o AppId antigo, o Inno exigiria elevação para "atualizar"
+; aquela instância — e UAC em conta de operador sem senha de admin travava o auto-update.
+AppId={{5E8B2A47-C1D9-4F63-9B0E-7C3A4D5E6F81}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher={#AppPublisher}
-DefaultDirName={autopf}\ClubeSevenBridge
+; Instalação POR USUÁRIO, SEM admin (modelo Chrome/Discord): pasta gravável pelo próprio usuário
+; é o que permite ao auto-update rodar o instalador silenciosamente sem prompt de UAC.
+DefaultDirName={localappdata}\Programs\ClubeSevenBridge
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 OutputBaseFilename=ClubeSevenBridge-Setup-{#AppVersion}
@@ -27,11 +32,12 @@ SetupIconFile=..\seven-logo.ico
 UninstallDisplayIcon={app}\{#AppExe}
 ; App x86; permitir instalar em Windows 64-bit tambem.
 ArchitecturesAllowed=x86 x64
-PrivilegesRequired=admin
+PrivilegesRequired=lowest
 ; Upgrade com o app rodando (auto-start na bandeja): o AppMutex casa com o mutex nomeado
 ; criado pelo exe (Program.cs). CloseApplications fecha o bridge via Restart Manager antes de
 ; copiar os arquivos (libera o exe e a companytec.dll do worker); RestartApplications reinicia
-; ao final — inclusive em modo silencioso (auto-update).
+; ao final — inclusive em modo silencioso (auto-update). Reinicia o EXE DO MESMO CAMINHO,
+; que após o upgrade já é a versão nova (upgrade in-place da pasta per-user).
 AppMutex=ClubeSevenBridgeSingleInstance
 CloseApplications=yes
 RestartApplications=yes
@@ -47,7 +53,10 @@ Name: "{commonappdata}\ClubeSevenBridge"; Permissions: users-modify
 
 [Tasks]
 Name: "autostart"; Description: "Iniciar automaticamente quando o Windows ligar"; GroupDescription: "Inicialização:"
-Name: "firewall"; Description: "Liberar a porta {#DefaultPort} no Firewall do Windows"; GroupDescription: "Rede:"
+; Regra de firewall exige admin — na instalação per-user (sem elevação) ela falha em silêncio.
+; Desmarcada por padrão: painel e fila Socket.IO não precisam de entrada (loopback/saída).
+; Marque apenas numa instalação manual feita por um admin que queira expor a porta na rede.
+Name: "firewall"; Description: "Liberar a porta {#DefaultPort} no Firewall (requer admin)"; GroupDescription: "Rede:"; Flags: unchecked
 Name: "desktopicon"; Description: "Criar atalho ""Abrir Painel"" na Área de Trabalho"; GroupDescription: "Atalhos:"
 
 [Files]

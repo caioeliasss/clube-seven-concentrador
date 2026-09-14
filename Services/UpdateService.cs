@@ -36,7 +36,7 @@ public class UpdateService : BackgroundService
         _logger = logger;
         _config = config;
         _http = httpClientFactory.CreateClient();
-        _http.Timeout = TimeSpan.FromMinutes(5); // download do setup pode ser grande
+        _http.Timeout = TimeSpan.FromMinutes(15); // setup self-contained ~41MB — link lento de posto
         // GitHub exige User-Agent.
         _http.DefaultRequestHeaders.UserAgent.ParseAdd("ClubeSevenBridge-Updater");
 
@@ -249,7 +249,8 @@ public class UpdateService : BackgroundService
             return false;
         }
 
-        // Lança o instalador silencioso. UseShellExecute=true dispara o UAC (PrivilegesRequired=admin).
+        // Lança o instalador silencioso. Desde a linha per-user (PrivilegesRequired=lowest)
+        // não há mais prompt de UAC — conta de operador comum instala/atualiza sem admin.
         // O instalador fecha este processo via Restart Manager e reinicia o bridge ao final.
         // /LOG: Inno escreve "Setup Log *.txt" no %TEMP% — sem isso uma falha silenciosa é invisível.
         _logger.LogWarning("UpdateService: aplicando atualização {Nova} — o bridge será reiniciado pelo instalador.", versao);
@@ -258,7 +259,7 @@ public class UpdateService : BackgroundService
             var proc = Process.Start(new ProcessStartInfo
             {
                 FileName = destino,
-                Arguments = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /NOCANCEL /LOG",
+                Arguments = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /NOCANCEL /FORCECLOSEAPPLICATIONS /LOG",
                 UseShellExecute = true,
             });
             if (proc == null)
