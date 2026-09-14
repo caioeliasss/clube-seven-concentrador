@@ -132,7 +132,7 @@ public class ConcentradorService : IDisposable
     // Quando o socket/serial cai (ex.: simulador ou concentrador desligado) a DLL NÃO crasha —
     // o worker segue vivo e C_readState passa a devolver "SEM RESPOSTA" / "FALHA". Sem isso,
     // _connected ficaria preso em true e o loop de polling nunca reabriria a conexão.
-    private static bool RespostaIndicaQueda(string? r)
+    internal static bool RespostaIndicaQueda(string? r)
     {
         if (string.IsNullOrWhiteSpace(r)) return true;
         string t = r.Trim().ToUpperInvariant();
